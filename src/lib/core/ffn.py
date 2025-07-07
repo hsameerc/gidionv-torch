@@ -1,4 +1,5 @@
-from typing import List, Optional
+import math
+from typing import List, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -133,3 +134,98 @@ class DynamicFeedForwardNetwork(nn.Module):
     def set_params(self, state_dict):
         """Replaced by model.load_state_dict()"""
         self.load_state_dict(state_dict)
+
+    @torch.no_grad()
+    def analyze_weights_svd(self, layer_indices: Optional[List[int]] = None, top_n_singular_values: int = 5,
+                            threshold_effective_rank: float = 1e-6):
+        """
+        Analyze the SVD of the network's weight matrices using torch.linalg.
+        """
+        print(f"SVD Analysis for PyTorch DRN (dtype: {self.dtype})")
+        indices_to_analyze = layer_indices if layer_indices is not None else range(self.num_layers)
+        for i in indices_to_analyze:
+            if i >= self.num_layers:
+                print(f"Layer index {i} out of bounds. Skipping.")
+                continue
+            layer = self.layers[i]
+            original_weights = layer.weight.data
+            if original_weights.numel() == 0:
+                print(f"Layer {i}: Weight matrix is empty. Skipping.")
+                continue
+            try:
+                _, s, _ = torch.linalg.svd(original_weights.to(torch.float32))
+                print(f"Layer {i} (shape {original_weights.shape}):")
+                if s.numel() == 0:
+                    print("  No singular values found.")
+                    continue
+                print(
+                    f"Singular values (top {min(top_n_singular_values, s.size(0))}): {s[:top_n_singular_values].cpu().numpy()}")
+                s_max_val = s[0]
+                s_min_val = s[-1]
+                print(f"Min/Max singular value: {s_min_val.item():.2e} / {s_max_val.item():.2e}")
+                if s_max_val > 0 and s_min_val > 1e-9 * s_max_val:
+                    condition_number = s_max_val / s_min_val
+                    print(f"Condition number: {condition_number.item():.2e}")
+                else:
+                    print(f"Condition number: Inf or N/A")
+                effective_rank_threshold = threshold_effective_rank * s_max_val
+                effective_rank = torch.sum(s > effective_rank_threshold)
+                print(
+                    f"Effective rank (s > {effective_rank_threshold.item():.1e}): {effective_rank.item()} / {s.size(0)}")
+            except Exception as e:
+                print(f"SVD failed for layer {i} (shape {original_weights.shape}): {e}")
+
+    @torch.no_grad()
+    def project_weights_low_rank(self, rank_or_fraction: Union[int, float], layer_indices: Optional[List[int]] = None):
+        """
+        Apply low-rank projection to the weights of specified layers using torch.linalg.
+        """
+        print(f"Projecting weights to low rank (target: {rank_or_fraction})")
+        indices_to_project = layer_indices if layer_indices is not None else range(self.num_layers)
+
+        for i in indices_to_project:
+            if i >= self.num_layers:
+                continue
+
+            # Access the nn.Linear layer directly
+            layer = self.layers[i]
+            weight_original = layer.weight.data
+
+            if weight_original.ndim != 2 or min(weight_original.shape) == 0:
+                continue
+
+            try:
+                #  SVD on the tensor
+                U, S, Vh = torch.linalg.svd(weight_original.to(torch.float32), full_matrices=False)
+
+                if S.numel() == 0:
+                    continue
+
+                current_rank = S.size(0)
+                if isinstance(rank_or_fraction, int) and rank_or_fraction > 0:
+                    k = min(rank_or_fraction, current_rank)
+                elif isinstance(rank_or_fraction, float) and 0 < rank_or_fraction <= 1.0:
+                    k = int(math.ceil(rank_or_fraction * current_rank))
+                    k = max(1, min(k, current_rank))
+                else:
+                    print(f"Skipping layer {i} due to invalid rank_or_fraction: {rank_or_fraction}")
+                    continue
+
+                if k >= current_rank:
+                    print(f"Skipping layer {i}: target rank {k} >= current rank {current_rank}")
+                    continue
+
+                print(f"Projecting layer {i} weights from rank {current_rank} to {k}.")
+
+                # Truncate and reconstruct
+                U_k = U[:, :k]
+                S_k = torch.diag(S[:k])  # S is a vector, so we make it a diagonal matrix for matmul
+                Vh_k = Vh[:k, :]
+
+                weight_reconstructed = U_k @ S_k @ Vh_k
+
+                # Layer's weight in-place
+                layer.weight.data.copy_(weight_reconstructed.to(weight_original.dtype))
+
+            except Exception as e:
+                print(f"SVD low-rank projection failed for layer {i} (shape {weight_original.shape}): {e}")
