@@ -64,9 +64,9 @@ class MultiHeadAttention(nn.Module):
                                          diagonal=1)
                 scores = scores.masked_fill(causal_mask, float('-inf'))
 
-            if attn_mask:
+            if attn_mask is not None:
                 mask_expanded = attn_mask.unsqueeze(1).unsqueeze(2)
-                scores = scores.masked_fill(mask_expanded == 0, -1e9) # Use a large negative number
+                scores = scores.masked_fill(mask_expanded == 0, float('-inf'))
 
         # Apply softmax to get weights
         attn_weights = F.softmax(scores, dim=-1)
