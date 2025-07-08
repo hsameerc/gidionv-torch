@@ -34,6 +34,7 @@ class MultiHeadAttention(nn.Module):
         torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
 
         batch_size, q_seq_len, _ = query.shape
+        k_seq_len = key.shape[1]
 
         q_proj = self.q_proj(query)
         k_proj = self.k_proj(key)
@@ -56,10 +57,16 @@ class MultiHeadAttention(nn.Module):
         scores = scores / math.sqrt(self.head_depth)
 
         # Apply the mask (if any)
-        if attn_mask is not None:
+        if is_causal or attn_mask is not None:
             # We need to broadcast the mask to the scores shape (batch, heads, q_len, k_len)
-            mask_expanded = attn_mask.unsqueeze(1).unsqueeze(2)
-            scores = scores.masked_fill(mask_expanded == 0, -1e9) # Use a large negative number
+            if is_causal:
+                causal_mask = torch.triu(torch.ones((q_seq_len, k_seq_len), device=query.device, dtype=torch.bool),
+                                         diagonal=1)
+                scores = scores.masked_fill(causal_mask, float('-inf'))
+
+            if attn_mask:
+                mask_expanded = attn_mask.unsqueeze(1).unsqueeze(2)
+                scores = scores.masked_fill(mask_expanded == 0, -1e9) # Use a large negative number
 
         # Apply softmax to get weights
         attn_weights = F.softmax(scores, dim=-1)
