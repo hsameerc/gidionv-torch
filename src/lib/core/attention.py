@@ -122,7 +122,7 @@ class MultiHeadAttention(nn.Module):
     @torch.no_grad()
     def project_projection_weights_low_rank(self, rank_or_fraction: Union[int, float]):
         """
-         Applies low-rank projection to the MHA's projection weights.
+         Applies low-rank projection to the Multy Head Attention's projection weights.
         """
         print(f"Projecting MHA weights to low rank (target: {rank_or_fraction})")
 
