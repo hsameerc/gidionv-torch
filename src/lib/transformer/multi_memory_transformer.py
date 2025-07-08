@@ -36,16 +36,15 @@ class MultiMemoryTransformer(nn.Module):
         self.memory_encoder = MemoryEncoder(num_layers=config['memory_encoder']['num_layers'], d_model=self.d_model,
                                             num_heads=config['memory_encoder']['num_heads'],
                                             ff_hidden_config=config['memory_encoder']['ff_hidden_config'],
-                                            dropout_rate=config.get('dropout_rate', 0.1),
-                                            dtype=dtype)
+                                            dropout_rate=config.get('dropout_rate', 0.1), dtype=dtype)
 
         decoder_config = config['decoder']
         self.decoder_blocks = nn.ModuleList([
             MemoryAttentionFusionDecoderBlock(d_model=self.d_model, num_heads=decoder_config['num_heads'],
                                               ff_hidden_config=decoder_config['ff_hidden_config'],
                                               num_memory_streams=config['model']['num_memory_streams'],
-                                              dropout_rate=config.get('dropout_rate', 0.1),
-                                              dtype=dtype) for _ in range(decoder_config['num_layers'])])
+                                              dropout_rate=config.get('dropout_rate', 0.1), dtype=dtype) for _ in
+            range(decoder_config['num_layers'])])
 
         self.final_norm = nn.LayerNorm(self.d_model, dtype=dtype)
         self.lm_head = nn.Linear(self.d_model, self.vocab_size, bias=False, dtype=dtype)
@@ -73,24 +72,26 @@ class MultiMemoryTransformer(nn.Module):
             scale_factor = 1 / math.sqrt(2.0 * num_layers)
             module.weight.data.normal_(mean=0.0, std=0.02 * scale_factor)
 
-    def forward(self, input_ids: torch.Tensor, memory_streams_ids: List[torch.Tensor],
+    def forward(self, input_ids: torch.Tensor, memory_streams_ids: Optional[List[torch.Tensor]] = None,
                 memory_padding_masks: Optional[List[torch.Tensor]] = None,
-                kv_cache_list: Optional[List[Dict]] = None) -> Tuple[torch.Tensor, Optional[List[Dict]]]:
+                memory_contexts: Optional[List[torch.Tensor]] = None, kv_cache_list: Optional[List[Dict]] = None) -> \
+            Tuple[torch.Tensor, Optional[List[Dict]]]:
         """
         Performs a full forward pass. No `cache` for backprop is needed.
         """
         # Encode Memory Streams
-        memory_contexts = []
-        if memory_streams_ids:
-            for i, ids in enumerate(memory_streams_ids):
-                if memory_padding_masks is not None:
-                    mem_padding_mask = memory_padding_masks[i]
-                else:
-                    mem_padding_mask = (ids != self.pad_token_id)
-                mem_emb = self.token_embedding(ids) * (self.d_model ** 0.5)
-                mem_pos_emb = self.positional_encoding(mem_emb)
-                mem_ctx = self.memory_encoder(mem_pos_emb, padding_mask=mem_padding_mask)
-                memory_contexts.append(mem_ctx)
+        if memory_contexts is None:
+            memory_contexts = []
+            if memory_streams_ids:
+                for i, ids in enumerate(memory_streams_ids):
+                    if memory_padding_masks is not None:
+                        mem_padding_mask = memory_padding_masks[i]
+                    else:
+                        mem_padding_mask = (ids != self.pad_token_id)
+                    mem_emb = self.token_embedding(ids) * (self.d_model ** 0.5)
+                    mem_pos_emb = self.positional_encoding(mem_emb)
+                    mem_ctx = self.memory_encoder(mem_pos_emb, padding_mask=mem_padding_mask)
+                    memory_contexts.append(mem_ctx)
 
         # Process Main Input
         target_padding_mask = (input_ids != self.pad_token_id)
@@ -115,7 +116,7 @@ class MultiMemoryTransformer(nn.Module):
 
     @torch.no_grad()
     def generate(self, prompt_ids: torch.Tensor, memory_streams_ids: List[List[List[int]]], max_new_tokens: int,
-                 temperature: float = 0.7, top_p: float = 0.9, repetition_penalty: float = 1.5,
+                 temperature: float = 0.7, top_p: float = 0.9, top_k: int = 0, repetition_penalty: float = 1.5,
                  eos_token_id: Optional[int] = None, return_logits: bool = False) -> tuple[Tensor, Tensor] | Tensor:
         """
         Generates text sequences autoregressively using PyTorch.
@@ -149,8 +150,7 @@ class MultiMemoryTransformer(nn.Module):
             # Passing only the last token for generation after the first step
             input_ids_step = generated_ids[:, -1:] if kv_caches else generated_ids
 
-            logits, kv_caches = self.forward(input_ids=input_ids_step, memory_streams_ids=[],
-                                             # We pass pre-computed contexts
+            logits, kv_caches = self.forward(input_ids=input_ids_step, memory_contexts=memory_contexts,
                                              kv_cache_list=kv_caches)
             # Getting the logits for the very last token
             logits = logits[:, -1, :]
@@ -164,14 +164,19 @@ class MultiMemoryTransformer(nn.Module):
             # Applying temperature and top-p sampling
             if temperature > 0:
                 logits = logits / temperature
-                # Top-p filtering
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-                cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
-                sorted_indices_to_remove = cumulative_probs > top_p
-                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-                sorted_indices_to_remove[..., 0] = 0
-                indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-                logits[indices_to_remove] = -float('Inf')
+                if top_k > 0:
+                    top_k_logits, top_k_indices = torch.topk(logits, top_k)
+                    min_inf_mask = torch.full_like(logits, -float('Inf'))
+                    logits = min_inf_mask.scatter_(1, top_k_indices, top_k_logits)
+                if 0 < top_p < 1.0:
+                    # Top-p filtering
+                    sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                    cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                    sorted_indices_to_remove = cumulative_probs > top_p
+                    sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                    sorted_indices_to_remove[..., 0] = 0
+                    indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+                    logits[indices_to_remove] = -float('Inf')
 
                 probs = F.softmax(logits, dim=-1)
                 next_token = torch.multinomial(probs, num_samples=1)
@@ -194,7 +199,6 @@ class MultiMemoryTransformer(nn.Module):
             return generated_ids, logits
         else:
             return generated_ids
-
 
     def __call__(self, *args, **kwargs):
         """Standard callable interface."""

@@ -35,7 +35,9 @@ def save_checkpoint(model: nn.Module, optimizer: Optimizer, config: Dict[str, An
 
     if is_best:
         save_path = os.path.join(model_dir, f"{model_name}_best.pth")
+        resume_save_path = os.path.join(model_dir, f"{model_name}_best_resume.pth")
         torch.save(model.state_dict(), save_path)
+        torch.save(checkpoint, resume_save_path)
         print(f"🎉New best model saved to {save_path} 🎉")
     else:
         save_path = os.path.join(model_dir, f"{model_name}_latest.pth")
@@ -43,10 +45,8 @@ def save_checkpoint(model: nn.Module, optimizer: Optimizer, config: Dict[str, An
         print(f"Regular checkpoint saved to {save_path}")
 
 
-def load_checkpoint(
-        config: Dict[str, Any],
-        device: torch.device
-) -> Tuple[nn.Module, Optimizer, HFTokenizerWrapper, Dict[str, Any]]:
+def load_checkpoint(config: Dict[str, Any], device: torch.device, use_best: bool = False) -> Tuple[
+    nn.Module, Optimizer, HFTokenizerWrapper, Dict[str, Any]]:
     """
     Loads a model and optimizer state from a checkpoint. If no checkpoint exists,
     it initializes a new model and returns default training progress.
@@ -54,7 +54,7 @@ def load_checkpoint(
     Args:
         config: The configuration dictionary.
         device: The device to load the model onto.
-
+        use_best: Use Best Modal saved checkpoint path to load
     Returns:
         A tuple containing:
         - model: The initialized or loaded model.
@@ -65,29 +65,34 @@ def load_checkpoint(
     model_dir = config['MODEL_DIR']
     model_name = config['MODEL_NAME']
     checkpoint_path = os.path.join(model_dir, f"{model_name}_latest.pth")
+    best_checkpoint_path = os.path.join(model_dir, f"{model_name}_best.pth")
 
     # Initializing empty model and optimizer
     print("Initializing model architecture...")
     tokenizer = HFTokenizerWrapper(config['TOKENIZER_PATH'])
     model = MultiMemoryTransformer(config, tokenizer).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config['PEAK_LEARNING_RATE'],
-                                  betas=(config['ADAM_BETA1'], config['ADAM_BETA2']))
+                                  betas=(config['ADAM_BETA1'], config['ADAM_BETA2']), weight_decay=config['WEIGHT_DECAY'])
 
     # Loading state from checkpoint if it exists
-    if os.path.exists(checkpoint_path):
+    if use_best and os.path.exists(best_checkpoint_path):
+        print(f"Loading checkpoint from {best_checkpoint_path}")
+        checkpoint = torch.load(best_checkpoint_path, map_location=device)
+        model.load_state_dict(checkpoint)
+        print("Successfully loaded model.")
+        train_state = {'total_steps': 0, 'best_val_loss': float('inf'), 'start_epoch': 0}
+        return model, optimizer, tokenizer, train_state
+    elif os.path.exists(checkpoint_path):
         print(f"Loading checkpoint from {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location=device)
-
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         print("Successfully loaded model and optimizer state.")
 
         # Creating the training state dictionary from the checkpoint
-        train_state = {
-            'total_steps': checkpoint.get('total_steps', 0),
-            'best_val_loss': checkpoint.get('best_val_loss', float('inf')),
-            'start_epoch': checkpoint.get('last_trained_epoch', 0)
-        }
+        train_state = {'total_steps': checkpoint.get('total_steps', 0),
+                       'best_val_loss': checkpoint.get('best_val_loss', float('inf')),
+                       'start_epoch': checkpoint.get('last_trained_epoch', 0)}
         # Returning model, optimizer, tokenizer and train state
         return model, optimizer, tokenizer, train_state
 
@@ -98,10 +103,6 @@ def load_checkpoint(
             model.apply(model.init_weights)
 
         #  Creating a default training state for a new run
-        train_state = {
-            'total_steps': 0,
-            'best_val_loss': float('inf'),
-            'start_epoch': 0
-        }
+        train_state = {'total_steps': 0, 'best_val_loss': float('inf'), 'start_epoch': 0}
 
         return model, optimizer, tokenizer, train_state
