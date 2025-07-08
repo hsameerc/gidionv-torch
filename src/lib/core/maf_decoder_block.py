@@ -51,7 +51,6 @@ class MemoryAttentionFusionDecoderBlock(nn.Module):
                 target_padding_mask: Optional[torch.Tensor] = None,
                 memory_padding_masks: Optional[List[torch.Tensor]] = None, kv_cache: Optional[Dict[str, Any]] = None) -> \
             Tuple[torch.Tensor, Dict[str, Any]]:
-
         kv_cache = kv_cache or {}
 
         # Masked Self-Attention (Pre-LN)
@@ -69,9 +68,13 @@ class MemoryAttentionFusionDecoderBlock(nn.Module):
         if memory_padding_masks is None: memory_padding_masks = [None] * len(memory_streams)
 
         for i, memory_context in enumerate(memory_streams):
+
             if memory_context.shape[1] == 0:
                 cross_attention_outputs.append(torch.zeros_like(residual1))
                 continue
+
+            # memory_context = memory_streams[:, i, :, :]
+            # memory_mask = memory_padding_masks[:, i, :]
 
             layer_set = self.cross_attention_layers[i]
             ln_cross_out = layer_set["ln_cross"](residual1)

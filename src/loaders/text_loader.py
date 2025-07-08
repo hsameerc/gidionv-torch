@@ -1,10 +1,14 @@
+import atexit
 import csv
 import json
+import mmap
 import os
 import random
-from typing import List, Dict, Generator, Optional
+from pathlib import Path
+from typing import Generator
+from typing import List, Dict, Optional
 
-import mmap
+from torch.utils.data import Dataset
 
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
 
@@ -102,81 +106,84 @@ class TextLoaderStream:
         """Ensure resources are cleaned up when the object is garbage-collected."""
         self.close()
 
-class JsonlStreamLoader:
-    """
-    Handles loading and accessing large .jsonl files efficiently without
-    loading the entire file into memory.
 
-    It works by first creating an index of the byte offset of each line.
-    Then, it can retrieve any specific line by seeking directly to that
-    position in the file.
+class IndexedJsonlDataset(Dataset):
+    """
+    A high-performance, memory-efficient PyTorch Dataset for very large .jsonl files.
+
+    This class creates an index of byte offsets for each line in the file, allowing for
+    fast, random access to any data point. It is designed to be used with a
+    PyTorch `DataLoader` and multiple workers, where each worker will keep its own
+    file handle open to avoid repeated open/close overhead.
     """
 
     def __init__(self, filepath: str):
-        """
-        Initializes the loader and builds the line index.
+        self.filepath = Path(filepath)
+        if not self.filepath.exists():
+            raise FileNotFoundError(f"File not found: {self.filepath}")
 
-        :param filepath: The path to the .jsonl file.
-        """
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(f"The specified file does not exist: {filepath}")
-
-        self.filepath = filepath
         self._line_offsets: List[int] = []
+
+        # File handle, one per worker process
+        # This will be initialized lazily in __getitem__ to be compatible
+        # with PyTorch's multiprocessing DataLoader.
+        self._file_handle = None
 
         print(f"Indexing large JSONL file: {self.filepath}...")
         self._build_index()
         print(f"Indexing complete. Found {len(self)} lines.")
 
+        # Ensure file handles are closed when the main Python process exits
+        atexit.register(self.close)
+
     def _build_index(self):
         """
-        Performs a one-time scan of the file to find the start of each line.
+        Scans the file once to build a byte offset index for each line.
+        This is a more efficient implementation.
         """
-        with open(self.filepath, 'rb') as f:
+        with self.filepath.open('rb') as f:
             self._line_offsets.append(0)
-            while f.readline():
-                current_pos = f.tell()
-                self._line_offsets.append(current_pos)
+            while True:
+                line = f.readline()
+                if not line:
+                    break
+                self._line_offsets.append(f.tell())
 
         self._line_offsets.pop()
 
     def __len__(self) -> int:
-        """Returns the total number of lines (JSON objects) in the file."""
+        """Returns the total number of lines (samples) in the file."""
         return len(self._line_offsets)
 
     def __getitem__(self, index: int) -> Dict:
         """
-        Retrieves and parses a single JSON object from the file by its line index.
-        This is the core of the lazy loading mechanism.
-
-        :param index: The line number (0-based) to retrieve.
-        :return: The parsed JSON object as a dictionary.
+        Retrieves and parses a single JSON object by its line index.
+        It lazily opens a file handle for each worker process.
         """
         if not 0 <= index < len(self):
             raise IndexError(f"Index {index} is out of range for file with {len(self)} lines.")
 
-        with open(self.filepath, 'rb') as f:
-            f.seek(self._line_offsets[index])
-            line_bytes = f.readline()
+        # Each worker process gets its own file handle, which stays open.
+        if self._file_handle is None:
+            self._file_handle = self.filepath.open('rb')
 
+        # Seek to the pre-computed byte offset and read the line
+        self._file_handle.seek(self._line_offsets[index])
+        line_bytes = self._file_handle.readline()
+
+        # Decode and parse the JSON line
         return json.loads(line_bytes.decode('utf-8'))
 
-    def stream_batches(self, batch_size: int):
-        """
-        A generator that yields batches of data by
-        reading the file sequentially in a single pass.
-        """
-        current_batch = []
-        with open(self.filepath, 'r', encoding='utf-8') as f:
-            for line in f:
-                if line.strip():
-                    current_batch.append(json.loads(line))
-                    if len(current_batch) == batch_size:
-                        yield current_batch
-                        current_batch = []
+    def close(self):
+        """Closes the file handle."""
+        if self._file_handle is not None:
+            self._file_handle.close()
+            self._file_handle = None
 
-        if current_batch:
-            yield current_batch
+    def __del__(self):
+        """Destructor to ensure file handle is closed when the object is destroyed."""
+        self.close()
+
 
 class AdvancedDataStreamer:
     """

@@ -1,16 +1,49 @@
-from typing import Dict, List
+from typing import Dict, List, Any
 
 import torch
 
+from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
 
-def _torch_pad_sequences(sequences: List[List[int]], max_len: int, pad_id: int) -> torch.Tensor:
-    """A robust helper to pad a list of token ID lists into a torch.Tensor."""
+
+def _pad_sequences(sequences: List[List[int]], max_len: int, pad_id: int) -> torch.Tensor:
+    """Pads a list of token ID lists into a torch.Tensor."""
     batch_size = len(sequences)
+    # Handle empty sequences list
+    if batch_size == 0:
+        return torch.empty((0, max_len), dtype=torch.long)
+
     padded = torch.full((batch_size, max_len), pad_id, dtype=torch.long)
     for i, seq in enumerate(sequences):
-        valid_len = min(len(seq), max_len)
-        padded[i, :valid_len] = torch.tensor(seq[:valid_len], dtype=torch.long)
+        # Truncate sequence if it's longer than max_len
+        seq = seq[:max_len]
+        valid_len = len(seq)
+        if valid_len > 0:
+            padded[i, :valid_len] = torch.tensor(seq, dtype=torch.long)
     return padded
+
+
+def _pad_1d_sequence(sequence: List[int], max_len: int, pad_id: int) -> torch.Tensor:
+    """Pads a single 1D list of token IDs into a 1D torch.Tensor."""
+    padded = torch.full((max_len,), pad_id, dtype=torch.long)
+    valid_len = min(len(sequence), max_len)
+    if valid_len > 0:
+        padded[:valid_len] = torch.tensor(sequence[:valid_len], dtype=torch.long)
+    return padded
+
+
+def format_prompt(instruction: str, context: str, special_tokens: dict) -> str:
+    """Formats the structured data into the final prompt string."""
+    user_token = special_tokens.get("USER", "<USER>")
+    inst_token = special_tokens.get("INST", "<INST>")
+    end_inst_token = special_tokens.get("END_INST", "</INST>")
+    assistant_token = special_tokens.get("ASSISTANT", "<ASSISTANT>")
+
+    if context:
+        prompt_instruction = f"Use the provided context to answer the following instruction.\n\nContext: {context[:500]}...\n\nInstruction: {instruction}"
+    else:
+        prompt_instruction = instruction
+
+    return f"{user_token}{inst_token} {prompt_instruction} {end_inst_token}{assistant_token}"
 
 
 def prepare_single_pretrain_item(item_data: Dict[str, List[int]], tokenizer, config) -> Dict[str, torch.Tensor]:
@@ -58,52 +91,70 @@ def prepare_single_pretrain_item(item_data: Dict[str, List[int]], tokenizer, con
     padding_mask = (input_ids != pad_id).to(dtype=torch.bool)
     memory_padding_masks = [(stream != pad_id).to(dtype=torch.bool) for stream in memory_streams_ids]
     return {"input_ids": input_ids, "memory_streams_ids": memory_streams_ids, "target_ids": target_ids,
-        "padding_mask": padding_mask, "memory_padding_masks": memory_padding_masks}
+            "padding_mask": padding_mask, "memory_padding_masks": memory_padding_masks}
 
 
-def prepare_instruction_batch(batch_text_data: List[Dict], tokenizer, config: dict) -> dict:
+def prepare_single_instruction_item(raw_item: Dict, tokenizer: 'HFTokenizerWrapper', config: dict,
+                                          special_tokens: dict) -> Dict[str, Any]:
     """
-    Prepares a batch for instruction fine-tuning, using the idiomatic PyTorch
-    approach of setting ignored targets to -100.
+    Prepares a SINGLE fine-tuning item, returning
+    a dictionary with all required tensors and masks.
     """
-    prompts = [item['source'] for item in batch_text_data]
-    responses = [item['target'] for item in batch_text_data]
     seq_len = config['max_seq_len']
-
     pad_id = tokenizer.pad_token_id
-    bos_id = tokenizer.bos_token_id
     eos_id = tokenizer.eos_token_id
 
-    # Memory Stream preparation is a direct translation
-    prompt_token_ids = [tokenizer.encode(p) for p in prompts]
-    memory_stream_1 = _torch_pad_sequences(prompt_token_ids, seq_len, pad_id)
-    num_mem_streams = config['model']['num_memory_streams']
-    memory_streams_ids = [memory_stream_1]
-    if num_mem_streams > 1:
-        zero_stream = torch.full_like(memory_stream_1, pad_id)
-        memory_streams_ids.extend([zero_stream] * (num_mem_streams - 1))
+    # Preparing Memory Streams and their Masks
+    context_text = raw_item.get('context', '')
+    context_ids = tokenizer.encode(context_text)
 
-    # Sequence construction and padding
-    response_with_eos_ids = [tokenizer.encode(r) + ([eos_id] if eos_id else []) for r in responses]
-    full_sequences = [([bos_id] if bos_id else []) + p_ids + r_ids for p_ids, r_ids in
-                      zip(prompt_token_ids, response_with_eos_ids)]
+    max_context_len = config.get('max_context_len', seq_len)
+    padded_context = _pad_1d_sequence(context_ids, max_context_len, pad_id)
 
-    # Truncate and create input/target pairs
-    input_ids_list = [seq[:-1][:seq_len] for seq in full_sequences]
-    target_ids_list = [seq[1:][:seq_len] for seq in full_sequences]
+    memory_streams_ids_list = [padded_context]
+    num_total_mem_streams = config['model']['num_memory_streams']
+    if num_total_mem_streams > 1:
+        empty_stream  = torch.full_like(padded_context, pad_id,  dtype=torch.long)
+        memory_streams_ids_list.extend([empty_stream] * (num_total_mem_streams - 1))
 
-    input_ids = _torch_pad_sequences(input_ids_list, seq_len, pad_id)
-    target_ids = _torch_pad_sequences(target_ids_list, seq_len, pad_id)
+    # Stacking the list of 1D tensors into a single 2D tensor
+    # Shape: (num_memory_streams, max_context_len)
+    final_memory_streams = torch.stack(memory_streams_ids_list)
 
-    has_bos = 1 if bos_id is not None else 0
-    for i, p_ids in enumerate(prompt_token_ids):
-        # Calculate the length of the prompt part in the target sequence
-        # The target sequence is shifted by 1, so the prompt part ends at len(p_ids).
-        prompt_len_in_target = len(p_ids) + has_bos
-        # We want to ignore the prompt tokens in the loss calculation.
-        target_ids[i, :prompt_len_in_target] = -100
-    # We also ignore any padding tokens in the targets.
+    # Creating the memory padding mask from the final tensor
+    # Shape: (num_memory_streams, max_context_len)
+    memory_padding_masks = (final_memory_streams != pad_id)
+
+    # Formatting the Main Prompt and Target Output
+    prompt_text = format_prompt(raw_item['instruction'], raw_item['context'], special_tokens)
+    response_text = raw_item['output']
+
+    prompt_ids = tokenizer.encode(prompt_text)
+    response_ids = tokenizer.encode(response_text)
+
+    # Creating Final Input/Target Tensors
+    full_sequence = prompt_ids + response_ids + ([eos_id] if eos_id is not None else [])
+
+    input_list = full_sequence[:-1]
+    target_list = full_sequence[1:]
+
+    input_ids = _pad_1d_sequence(input_list, seq_len, pad_id)
+    target_ids = _pad_1d_sequence(target_list, seq_len, pad_id)
+
+    # Creating Loss Mask and Padding Mask
+    prompt_len = len(prompt_ids)
+    if prompt_len < seq_len:
+        target_ids[:prompt_len] = -100
+
     target_ids[target_ids == pad_id] = -100
 
-    return {"input_ids": input_ids, "memory_streams_ids": memory_streams_ids, "target_ids": target_ids,
-            "padding_mask": (input_ids != pad_id)}
+    # Creating the padding mask for the main decoder input
+    # Shape: (seq_len,)
+    padding_mask = (input_ids != pad_id)
+    # Return the complete, model-ready item
+    return {"input_ids": input_ids,  # Shape: (seq_len,)
+            "target_ids": target_ids,  # Shape: (seq_len,)
+            "padding_mask": padding_mask,  # Shape: (seq_len,)
+            "memory_streams_ids": final_memory_streams,  # Shape: (num_streams, context_len)
+            "memory_padding_masks": memory_padding_masks,  # Shape: (num_streams, context_len)
+            }

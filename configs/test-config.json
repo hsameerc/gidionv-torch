@@ -2,8 +2,8 @@
   "MODEL_NAME": "gidion_translate_nep_en",
   "MODEL_DIR": "checkpoints/gidion_translate_nep_en",
   "TOKENIZER_PATH": "configs/tokenizers/my-custom-nepali-tokenizer.json",
-  "TRAIN_FILE_PATH": "/Users/sameerhumagain/DeepLearning/sample-data/nepali-english.txt",
-  "VAL_FILE_PATH": "/Users/sameerhumagain/DeepLearning/sample-data/nepali-english-val.txt",
+  "TRAIN_FILE_PATH": "sample-data/train.txt",
+  "VAL_FILE_PATH": "sample-data/val.txt",
   "MEMORY_PATH": "memory/gidion_translate_nep_en_memory",
   "LOG_FILE_NAME": "gidion_translate_nep_en.csv",
   "GRADIENT_NORM_LOG_PATH": "logs/gidion_v4_test_v1_grads.csv",
@@ -40,6 +40,7 @@
   "CLIP_THRESHOLD": 1.0,
   "ADAM_BETA1": 0.9,
   "ADAM_BETA2": 0.95,
+  "WEIGHT_DECAY": 0.00,
 
   "EVAL_EVERY_N_STEPS": 200,
   "SAVE_EVERY_N_STEPS": 100,
@@ -68,7 +69,7 @@
   "PROMPT_TEMPLATES_PATH": "configs/prompt_templates.json",
 
   "model": {
-    "num_memory_streams": 4
+    "num_memory_streams": 3
   },
 
   "total_steps": 0,

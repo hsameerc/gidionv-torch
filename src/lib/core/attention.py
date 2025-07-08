@@ -55,18 +55,18 @@ class MultiHeadAttention(nn.Module):
 
         # Scale the scores
         scores = scores / math.sqrt(self.head_depth)
-
+        masking_value = torch.finfo(scores.dtype).min
         # Apply the mask (if any)
         if is_causal or attn_mask is not None:
             # We need to broadcast the mask to the scores shape (batch, heads, q_len, k_len)
             if is_causal:
                 causal_mask = torch.triu(torch.ones((q_seq_len, k_seq_len), device=query.device, dtype=torch.bool),
                                          diagonal=1)
-                scores = scores.masked_fill(causal_mask, -1e9)
+                scores = scores.masked_fill(causal_mask, masking_value)
 
             if attn_mask is not None:
                 mask_expanded = attn_mask.unsqueeze(1).unsqueeze(2)
-                scores = scores.masked_fill(mask_expanded == 0, -1e9)
+                scores = scores.masked_fill(mask_expanded == 0, masking_value)
 
         # Apply softmax to get weights
         attn_weights = F.softmax(scores, dim=-1)

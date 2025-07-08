@@ -1,0 +1,80 @@
+{
+  "MODEL_NAME": "gidionv_multi_memory",
+  "MODEL_DIR": "research/models/gidionv_multi_memory",
+  "TOKENIZER_PATH": "configs/tokenizers/bpe_v2_50200_vocab.json",
+  "TRAIN_FILE_PATH": "D:\\Projects\\datasets\\finetune.jsonl",
+  "VAL_FILE_PATH": "D:\\Projects\\datasets\\finetune_validation.josnl",
+  "MEMORY_PATH": "memory/gidionv_multi_memory",
+  "LOG_FILE_NAME": "gidionv_multi_memory_finetune.csv",
+  "GRADIENT_NORM_LOG_PATH": "gidionv_multi_memory.csv",
+  "PROMPT_TEMPLATES_PATH": "configs/prompt_templates.json",
+  "d_model": 512,
+  "vocab_size": 50200,
+  "max_seq_len": 1024,
+  "dropout_rate": 0.1,
+  "model": {
+    "num_memory_streams": 3
+  },
+  "memory_encoder": {
+    "num_layers": 4,
+    "num_heads": 8,
+    "ff_hidden_config": [
+      2048
+    ],
+    "num_memory_slots": 4
+  },
+  "decoder": {
+    "num_layers": 8,
+    "num_heads": 8,
+    "ff_hidden_config": [
+      2048
+    ]
+  },
+  "EPOCHS": 3,
+  "BATCH_SIZE": 4,
+  "CHUNK_SIZE_CHARS": 10000000,
+  "OVERLAP_LEN_TOKENS": 128,
+  "GRADIENT_ACCUMULATION_STEPS": 8,
+  "PEAK_LEARNING_RATE": 2e-5,
+  "MIN_LEARNING_RATE": 2e-6,
+  "WARMUP_STEPS": 100,
+  "TOTAL_DECAY_STEPS": 5000,
+  "CLIP_THRESHOLD": 1.0,
+  "ADAM_BETA1": 0.9,
+  "ADAM_BETA2": 0.95,
+  "WEIGHT_DECAY": 0.0,
+  "EVAL_EVERY_N_STEPS": 50,
+  "SAVE_EVERY_N_STEPS": 20,
+  "LOG_EVERY_N_STEPS": 10,
+  "ENABLE_GRL": false,
+  "GRL_EVERY_N_OPTIMIZER_STEPS": 2000,
+  "GRL_PARAMS": {
+    "alpha": 0.001,
+    "reinforce_baseline_alpha": 0.95,
+    "gen_batch_size": 4,
+    "gen_max_len": 64,
+    "prompts": [
+      "In a startling finding,",
+      "The purpose of this project is to"
+    ],
+    "sampling_temp": 0.9,
+    "stop_words": null,
+    "top_k": 50,
+    "top_p": 0
+  },
+  "RANDOM_SEED": 42,
+  "model_dtype": "float32",
+  "resume_training": false,
+  "total_steps": 0,
+  "best_val_loss": "Inf",
+  "last_trained_epoch": 0,
+  "optimizer_state": {
+    "t": 0,
+    "lr": 0.0,
+    "weight_decay": 0.01,
+    "beta1": 0.9,
+    "beta2": 0.95,
+    "epsilon": 1e-08
+  },
+  "use_amp": true
+}
