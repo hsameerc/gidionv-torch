@@ -62,11 +62,11 @@ class MultiHeadAttention(nn.Module):
             if is_causal:
                 causal_mask = torch.triu(torch.ones((q_seq_len, k_seq_len), device=query.device, dtype=torch.bool),
                                          diagonal=1)
-                scores = scores.masked_fill(causal_mask, float('-inf'))
+                scores = scores.masked_fill(causal_mask, -1e9)
 
             if attn_mask is not None:
                 mask_expanded = attn_mask.unsqueeze(1).unsqueeze(2)
-                scores = scores.masked_fill(mask_expanded == 0, float('-inf'))
+                scores = scores.masked_fill(mask_expanded == 0, -1e9)
 
         # Apply softmax to get weights
         attn_weights = F.softmax(scores, dim=-1)
