@@ -27,7 +27,7 @@ def get_learning_rate(step: int, config: Dict) -> float:
 
 
 @torch.no_grad()
-def calculate_validation_loss(model: 'MultiMemoryTransformer', val_loader: DataLoader, criterion: nn.Module,
+def calculate_validation_loss(model: nn.Module, val_loader: DataLoader, criterion: nn.Module,
                               device: torch.device) -> Tuple[float, float]:
     """
     Calculates validation loss and perplexity on a validation set.

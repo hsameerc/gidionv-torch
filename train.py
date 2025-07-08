@@ -78,9 +78,9 @@ def train(config: Dict[str, Any]):
         data_loader = DataLoader(dataset, batch_size=config['BATCH_SIZE'], num_workers=config.get('NUM_WORKERS', 1),
                                  persistent_workers=True)
         model.train()
-        grad_norm = None
         accum_loss = 0.0
         for i, batch in enumerate(data_loader):
+            batch: Dict[str, torch.Tensor]
             # Move batch to device
             input_ids = batch['input_ids'].to(device)
             target_ids = batch['target_ids'].to(device)
@@ -106,6 +106,9 @@ def train(config: Dict[str, Any]):
                 # Gradient Clipping
                 if config['CLIP_THRESHOLD'] > 0:
                     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config['CLIP_THRESHOLD'])
+                else:
+                    grad_norm = torch.sqrt(
+                        torch.sum(torch.stack([p.grad.norm() ** 2 for p in model.parameters() if p.grad is not None])))
 
                 scaler.step(optimizer)
                 scaler.update()

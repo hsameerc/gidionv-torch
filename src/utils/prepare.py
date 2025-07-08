@@ -25,7 +25,7 @@ def prepare_single_pretrain_item(item_data: Dict[str, List[int]], tokenizer, con
     source_ids = item_data['source_ids']
     context_ids = item_data['context_ids']
 
-    # Pad the single sequence to create a 1D tensor of shape (seq_len,)
+    # Pad the single sequence to create a 1D tensor of shape (seq_len)
     memory_stream_1 = torch.full((seq_len,), pad_id, dtype=torch.long)
     valid_len_ctx = min(len(context_ids), seq_len)
     memory_stream_1[:valid_len_ctx] = torch.tensor(context_ids[:valid_len_ctx], dtype=torch.long)
@@ -44,7 +44,7 @@ def prepare_single_pretrain_item(item_data: Dict[str, List[int]], tokenizer, con
         input_ids_list = []
         target_ids_list = []
 
-    # Pad to create 1D tensors of shape (seq_len,)
+    # Pad to create 1D tensors of shape (seq_len)
     input_ids = torch.full((seq_len,), pad_id, dtype=torch.long)
     valid_len_in = min(len(input_ids_list), seq_len)
     input_ids[:valid_len_in] = torch.tensor(input_ids_list[:valid_len_in], dtype=torch.long)
