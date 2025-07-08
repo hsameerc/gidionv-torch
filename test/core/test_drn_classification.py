@@ -60,14 +60,14 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """
-        [TORCH] This entire method is rewritten to use PyTorch.
+        This entire method is rewritten to use PyTorch.
         It instantiates the PyTorch model, loads weights from the old .npz file
         if it exists, or trains a new model using the PyTorch training loop.
         """
-        # [TORCH] Set up device
+        # Set up device
         cls.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # [TORCH] Instantiate the PyTorch model
+        # Instantiate the PyTorch model
         cls.net = DynamicFeedForwardNetwork(input_size=input_size, output_size=output_size,
             hidden_layers_config=[32, 32], hidden_activations=['dynamic_relu', 'dynamic_relu'],  # Use PyTorch names
             dropout_rate=0.0, output_activation='linear', ).to(cls.device)
@@ -79,8 +79,7 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
             print("Loading pre-trained PyTorch model...")
             cls.net.load_state_dict(torch.load(param_path))
             return
-
-        # If it doesn't exist, try to load the OLD numpy model and convert it
+ 
         old_param_path = 'model_dynamic_stateless.npz'
         if os.path.exists(old_param_path):
             print("Loading and converting pre-trained stateless model...")
@@ -128,11 +127,11 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
                 acc = correct / len(training_data)
                 print(f"Epoch {epoch} - Loss: {total_loss:.4f} - Accuracy: {acc:.2%}")
 
-        # [TORCH] Save the PyTorch model state
+        # Save the PyTorch model state
         torch.save(cls.net.state_dict(), param_path)
 
     def _test_prediction(self, sentence, expected):
-        # [TORCH] Set model to eval mode and use torch.no_grad()
+        # Set model to eval mode and use torch.no_grad()
         self.net.eval()
         with torch.no_grad():
             x = torch.tensor(encode_text_numpy(sentence), device=self.device).view(1, -1)
@@ -145,7 +144,6 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
         print(f"Input: {sentence}\nPredicted: {prediction_label}, Expected: {expected}")
         self.assertEqual(prediction_label, expected)
 
-    # --- Most of the actual test cases need very few changes ---
 
     def test_english(self):
         self._test_prediction("This is my english language from America", "English")
@@ -165,7 +163,7 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
     def test_forward_speed(self):
         self.net.eval()
         with torch.no_grad():
-            # [TORCH] Create a torch tensor for the test
+            # Create a torch tensor for the test
             x = torch.randn(1000, input_size, dtype=torch.float32, device=self.device)
 
             # Warm-up
