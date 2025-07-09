@@ -4,7 +4,7 @@ import traceback
 
 import torch
 from datasets import load_dataset
-from torch.utils.data import IterableDataset
+from torch.utils.data import IterableDataset, Dataset
 
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
 from src.loaders.text_loader import StreamingDatasetProcessor
@@ -118,3 +118,67 @@ class PretrainDataset(IterableDataset):
 
         for raw_item in raw_processed_stream:
             yield prepare_single_pretrain_item(raw_item, self.tokenizer, self.config)
+
+
+class PretrainValidationDataset(Dataset):
+    """
+    A map-style Dataset for language model validation.
+
+    It loads a fixed set (e.g., C4 validation), tokenizes it once, and
+    stores it in memory to ensure reproducible and efficient evaluation.
+    """
+
+    def __init__(self, tokenizer: 'HFTokenizerWrapper', config: dict):
+        super().__init__()
+        self.tokenizer = tokenizer
+        self.config = config
+        self.examples = []
+
+        print("Preparing fixed validation dataset")
+        self._prepare_data()
+        print(f"Validation dataset prepared with {len(self.examples)} examples.")
+
+    def _prepare_data(self):
+        val_source = self.config.get("val_dataset", {
+            "path": "allenai/c4",
+            "name": "en",
+            "split": "validation"
+        })
+
+        try:
+            val_dataset = load_dataset(
+                val_source["path"],
+                val_source.get("name"),
+                split=val_source.get("split", "validation"),
+                trust_remote_code=True
+            )
+            print(f"Loaded validation set with {len(val_dataset)} documents.")
+        except Exception as e:
+            print(f"Could not load validation set. Error: {e}")
+            raise e
+
+        processor = StreamingDatasetProcessor(
+            tokenizer=self.tokenizer,
+            seq_len=self.config['max_seq_len'],
+            overlap_len_tokens=0
+        )
+
+        text_stream = (
+            example['text'] for example in val_dataset
+            if 'text' in example and isinstance(example['text'], str) and len(example['text'].strip()) > 100
+        )
+
+        processed_examples = list(processor.process_stream(text_stream, shuffle=False))
+
+        for raw_item in processed_examples:
+            try:
+                item = prepare_single_pretrain_item(raw_item, self.tokenizer, self.config)
+                self.examples.append(item)
+            except Exception as e:
+                print(f"[Validation] Skipped example due to error: {e}")
+
+    def __len__(self) -> int:
+        return len(self.examples)
+
+    def __getitem__(self, idx: int) -> dict:
+        return self.examples[idx]

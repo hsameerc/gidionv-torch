@@ -10,13 +10,14 @@ from torch.utils.data import DataLoader
 
 from src.config.config import get_config
 from src.data.saver_loader import save_checkpoint, load_checkpoint
-from src.streamers.datasets import StreamerDataset
-from src.streamers.external_streamer import PretrainDataset
+from src.streamers.external_streamer import PretrainDataset, PretrainValidationDataset
 from src.utils.trainerhelper import get_learning_rate, calculate_validation_loss
 
 
 def train(config: Dict[str, Any]):
-    """[V4-PyTorch] The main, production-ready training script using the PyTorch framework."""
+    """
+        The main, production-ready training script using the PyTorch framework.
+    """
     # Initial Setup
     if config['RANDOM_SEED']:
         torch.manual_seed(config['RANDOM_SEED'])
@@ -46,7 +47,7 @@ def train(config: Dict[str, Any]):
     scaler = torch.amp.GradScaler(device=device.type, enabled=use_amp)
 
     # Validation Data loader
-    val_dataset = StreamerDataset(config=config, tokenizer=tokenizer, validation_stream=True)
+    val_dataset = PretrainValidationDataset(config=config, tokenizer=tokenizer)
     val_data_loader = DataLoader(val_dataset, batch_size=config['BATCH_SIZE'], num_workers=config.get('NUM_WORKERS', 1),
                                  persistent_workers=True)
     for epoch in range(start_epoch, config['EPOCHS']):
@@ -135,7 +136,7 @@ def train(config: Dict[str, Any]):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run the PyTorch Multi Memory Transformer.")
-    parser.add_argument('--config', default='configs/gidionv_pretrain.json', type=str)
+    parser.add_argument('--config', default='configs/gidionv_multi_memory.json', type=str)
     args = parser.parse_args()
 
     cfg = get_config()
