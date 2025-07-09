@@ -75,16 +75,17 @@ class MemoryOfExpertsTransformer(nn.Module):
             module.weight.data.normal_(mean=0.0, std=0.02 * scale_factor)
 
     def forward(self, input_ids: torch.Tensor, memory_streams_ids: Optional[List[torch.Tensor]] = None,
-                memory_contexts: Optional[List[torch.Tensor]] = None, kv_cache_list: Optional[List[Dict]] = None) -> \
+                memory_contexts: Optional[List[torch.Tensor]] = None,
+                memory_padding_masks: Optional[List[torch.Tensor]] = None,
+                kv_cache_list: Optional[List[Dict]] = None) -> \
             Tuple[torch.Tensor, Optional[List[Dict]]]:
         """Performs a full forward pass. No `cache` for backprop is needed."""
 
-        # Encode Memory Streams
-        memory_contexts = []
-        # Create padding masks for all memory streams
-        memory_padding_masks = [(ids != self.pad_token_id) for ids in memory_streams_ids]
-
+        # Encode Memory Streams / Contexts
         if memory_contexts is None:
+            # Create or Use padding masks for all memory streams
+            if memory_padding_masks is None:
+                memory_padding_masks = [(ids != self.pad_token_id) for ids in memory_streams_ids]
             memory_contexts = []
             if memory_streams_ids:
                 for i, ids in enumerate(memory_streams_ids):
