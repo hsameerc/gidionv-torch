@@ -29,7 +29,7 @@ class MultiHeadAttention(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor,
-                attn_mask: Optional[torch.Tensor] = None, is_causal: bool = False,  # is_causal is not used here
+                attn_mask: Optional[torch.Tensor] = None, is_causal: bool = False,
                 kv_cache: Optional[Tuple[torch.Tensor, torch.Tensor]] = None) -> Tuple[
         torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
 
