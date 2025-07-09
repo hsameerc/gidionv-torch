@@ -6,6 +6,7 @@ import torch.nn as nn
 from torch.optim.optimizer import Optimizer
 
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
+from src.lib.transformer.memory_of_experts_transformer import MemoryOfExpertsTransformer
 from src.lib.transformer.multi_memory_transformer import MultiMemoryTransformer
 
 
@@ -71,6 +72,7 @@ def load_checkpoint(config: Dict[str, Any], device: torch.device, use_best: bool
     print("Initializing model architecture...")
     tokenizer = HFTokenizerWrapper(config['TOKENIZER_PATH'])
     model = MultiMemoryTransformer(config, tokenizer).to(device)
+    # model = MemoryOfExpertsTransformer(config, tokenizer).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config['PEAK_LEARNING_RATE'],
                                   betas=(config['ADAM_BETA1'], config['ADAM_BETA2']), weight_decay=config['WEIGHT_DECAY'])
 

@@ -1,0 +1,99 @@
+{
+  "MODEL_NAME": "gidion_story_expert",
+  "MODEL_DIR": "checkpoints/gidion_story_expert",
+  "TOKENIZER_PATH": "configs/tokenizers/story-tokenizer.json",
+
+  "TRAIN_FILE_PATH": "/Volumes/Shared/traindata/image/flickr/flickr8k_train.jsonl",
+  "VAL_FILE_PATH": "/Volumes/Shared/traindata/image/flickr/flickr8k_val.jsonl",
+  "IMAGE_DIR": "/Volumes/Shared/traindata/image/flickr/flickr8k_images/",
+
+  "MEMORY_PATH": "memory/gidion_story_expert",
+  "LOG_FILE_NAME": "gidion_story_expert.csv",
+  "GRADIENT_NORM_LOG_PATH": "logs/gidion_story_expert.csv",
+
+  "d_model": 256,
+  "vocab_size": 50200,
+  "max_seq_len": 256,
+  "dropout_rate": 0.1,
+
+  "memory_encoder": {
+    "num_layers": 2,
+    "num_heads": 8,
+    "ff_hidden_config": [1024],
+    "num_memory_slots": 4
+  },
+  "vision_encoder": {
+    "image_size": 128,
+    "patch_size": 16,
+    "in_channels": 3,
+    "num_layers": 2,
+    "num_heads": 4,
+    "ff_hidden_config": [
+      512
+    ]
+  },
+  "decoder": {
+    "num_layers": 4,
+    "num_heads": 4,
+    "ff_hidden_config": [1024]
+  },
+
+  "EPOCHS": 100,
+  "BATCH_SIZE": 2,
+  "CHUNK_SIZE_CHARS": 5000000,
+  "OVERLAP_LEN_TOKENS": 32,
+  "GRADIENT_ACCUMULATION_STEPS": 32,
+
+  "PEAK_LEARNING_RATE": 3e-4,
+  "MIN_LEARNING_RATE": 3e-5,
+  "WARMUP_STEPS": 1000,
+  "TOTAL_DECAY_STEPS": 50000,
+
+  "CLIP_THRESHOLD": 1.0,
+  "ADAM_BETA1": 0.9,
+  "ADAM_BETA2": 0.95,
+  "WEIGHT_DECAY": 0.01,
+
+  "EVAL_EVERY_N_STEPS": 200,
+  "SAVE_EVERY_N_STEPS": 100,
+  "LOG_EVERY_N_STEPS": 10,
+
+  "ENABLE_GRL": false,
+  "GRL_EVERY_N_OPTIMIZER_STEPS": 2000,
+  "GRL_PARAMS": {
+    "alpha": 0.001,
+    "reinforce_baseline_alpha": 0.95,
+    "gen_batch_size": 4,
+    "gen_max_len": 64,
+    "prompts": [
+      "In a startling finding,",
+      "The purpose of this project is to"
+    ],
+    "sampling_temp": 0.9,
+    "stop_words": null,
+    "top_k": 50,
+    "top_p": 0
+  },
+
+  "RANDOM_SEED": 42,
+  "model_dtype": "float32",
+  "resume_training": true,
+  "PROMPT_TEMPLATES_PATH": "configs/prompt_templates.json",
+
+  "model": {
+    "num_memory_streams": 2
+  },
+
+  "total_steps": 0,
+  "best_val_loss": "Inf",
+  "last_trained_epoch": 0,
+
+  "optimizer_state": {
+    "t": 0,
+    "lr": 0.0,
+    "weight_decay": 0.01,
+    "beta1": 0.9,
+    "beta2": 0.95,
+    "epsilon": 1e-08
+  }
+}

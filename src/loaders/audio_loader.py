@@ -45,9 +45,9 @@ class AudioLanguageDataset(Dataset):
 
         # Process Audio
         audio_path = self.audio_dir / item['audio_file']
+        audio_path = str(audio_path)
         try:
             waveform, sr = torchaudio.load(audio_path)
-
             # Resample if necessary
             if sr != self.sample_rate:
                 resampler = T.Resample(sr, self.sample_rate)
@@ -123,7 +123,7 @@ def audio_language_collate_fn(batch: List[Optional[Dict]], pad_id: int, bos_id: 
 
     # Create Final Dictionary
     return {"input_ids": input_ids, "target_ids": target_ids, "padding_mask": (input_ids != pad_id),
-        "memory_streams_ids": memory_streams_ids, "memory_padding_masks": memory_padding_masks}
+            "memory_streams_ids": memory_streams_ids, "memory_padding_masks": memory_padding_masks}
 
 # Example Usage
 # from functools import partial

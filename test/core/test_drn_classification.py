@@ -21,7 +21,7 @@ class_labels = list(language_alphabets.keys())
 output_size = len(class_labels)
 
 
-def encode_text_numpy(text):  # Keep a numpy version for data prep
+def encode_text_numpy(text):
     vec = cpu_np.zeros(input_size, dtype=cpu_np.float32)
     for c in text.lower():
         if c in char_to_index:
