@@ -5,8 +5,7 @@ import mmap
 import os
 import random
 from pathlib import Path
-from typing import Generator
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Generator, Iterable
 
 from torch.utils.data import Dataset
 
@@ -321,3 +320,85 @@ class AdvancedDataStreamer:
                 current_batch = []
         if current_batch:
             yield current_batch
+
+
+class StreamingDatasetProcessor:
+    """
+    Processes a stream of text documents (from The Pile, etc.) into tokenized
+    {"source_ids": ..., "context_ids": ...} examples suitable for pre-training.
+
+    This adapts the core logic of your AdvancedDataStreamer for use with
+    Hugging Face's streaming datasets.
+    """
+
+    def __init__(self, tokenizer: 'HFTokenizerWrapper', seq_len: int, overlap_len_tokens: int = 0):
+        """
+        Args:
+            tokenizer: A tokenizer instance with `.encode()` and `.eos_token_id`.
+            seq_len: The sequence length for BOTH the context and source parts.
+            overlap_len_tokens: Number of tokens to overlap between full examples.
+        """
+        self.tokenizer = tokenizer
+        self.seq_len = seq_len
+        self.example_len = 2 * seq_len
+        self.step_len = self.example_len - overlap_len_tokens
+
+        if self.step_len <= 0:
+            raise ValueError("overlap_len_tokens must be smaller than 2 * seq_len.")
+        if not hasattr(tokenizer, 'eos_token_id') or tokenizer.eos_token_id is None:
+            raise ValueError("Tokenizer must have a defined 'eos_token_id'.")
+        self.eos_token_id = tokenizer.eos_token_id
+
+    def process_stream(self, text_stream: Iterable[str], shuffle: bool = True, buffer_size: int = 20000) -> Generator[
+        Dict[str, List[int]], None, None]:
+        """
+        A generator that takes a stream of text documents and yields tokenized examples.
+        This is the main workhorse method.
+
+        Args:
+            text_stream: An iterable that yields strings (e.g., documents from The Pile).
+            shuffle: Whether to shuffle examples within the buffer.
+            buffer_size: The number of examples to buffer before yielding.
+        """
+        buffer = []
+        def flush_buffer():
+            if shuffle:
+                random.shuffle(buffer)
+            for item in buffer:
+                yield item
+            buffer.clear()
+
+        token_remainder = []
+        for text_document in text_stream:
+            if not text_document:
+                continue
+
+            all_tokens = token_remainder + self.tokenizer.encode(text_document)
+
+            documents = []
+            current_doc_tokens = []
+            for token in all_tokens:
+                if token == self.eos_token_id:
+                    if current_doc_tokens:
+                        documents.append(current_doc_tokens)
+                    current_doc_tokens = []
+                else:
+                    current_doc_tokens.append(token)
+
+            token_remainder = current_doc_tokens
+
+            for doc_tokens in documents:
+                if len(doc_tokens) < self.example_len:
+                    continue
+
+                for i in range(0, len(doc_tokens) - self.example_len + 1, self.step_len):
+                    context_indices = doc_tokens[i: i + self.seq_len]
+                    source_indices = doc_tokens[i + self.seq_len: i + self.example_len]
+
+                    buffer.append({"source_ids": source_indices, "context_ids": context_indices})
+
+                    if len(buffer) >= buffer_size:
+                        yield from flush_buffer()
+
+        if buffer:
+            yield from flush_buffer()

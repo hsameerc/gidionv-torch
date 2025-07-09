@@ -7,35 +7,11 @@ from typing import Dict, Any
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
 
 from src.config.config import get_config
 from src.data.saver_loader import save_checkpoint, load_checkpoint
-from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
-from src.loaders.text_loader import IndexedJsonlDataset
-from src.utils.prepare import prepare_single_instruction_item
+from src.streamers.datasets import FinetuneDataset
 from src.utils.trainerhelper import get_learning_rate, calculate_validation_loss
-
-
-class FinetuneDataset(Dataset):
-    """
-    A map-style Dataset for fine-tuning on structured .jsonl files.
-    It uses an IndexedJsonlDataset for efficient random access.
-    """
-
-    def __init__(self, filepath: str, tokenizer: 'HFTokenizerWrapper', config: dict, special_tokens: dict):
-        super().__init__()
-        self.indexed_data = IndexedJsonlDataset(filepath)
-        self.tokenizer = tokenizer
-        self.config = config
-        self.special_tokens = special_tokens
-
-    def __len__(self) -> int:
-        return len(self.indexed_data)
-
-    def __getitem__(self, index: int) -> dict:
-        raw_item = self.indexed_data[index]
-        return prepare_single_instruction_item(raw_item, self.tokenizer, self.config, self.special_tokens)
 
 
 def train(config: Dict[str, Any]):
@@ -53,7 +29,7 @@ def train(config: Dict[str, Any]):
     model_path = os.path.join(config['MODEL_DIR'], f"{config['MODEL_NAME']}.pth")
 
     # Starting or Resuming Training
-    model, optimizer, tokenizer, train_state = load_checkpoint(config, device, use_best=True)
+    model, optimizer, tokenizer, train_state = load_checkpoint(config, device)
     if config['resume_training']:
         total_steps = train_state['total_steps']
         best_val_loss = train_state['best_val_loss']

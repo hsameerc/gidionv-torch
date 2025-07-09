@@ -6,34 +6,13 @@ from typing import Dict, Any
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import DataLoader
 
 from src.config.config import get_config
 from src.data.saver_loader import save_checkpoint, load_checkpoint
-from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
-from src.loaders.text_loader import TextLoaderStream, AdvancedDataStreamer
-from src.utils.prepare import prepare_single_pretrain_item
+from src.streamers.datasets import StreamerDataset
+from src.streamers.external_streamer import PretrainDataset
 from src.utils.trainerhelper import get_learning_rate, calculate_validation_loss
-
-
-class StreamerDataset(IterableDataset):
-    def __init__(self, config, tokenizer: HFTokenizerWrapper, validation_stream: bool = False):
-        self.config = config
-        self.tokenizer = tokenizer
-        self.validation_stream = validation_stream
-
-    def __iter__(self):
-        if self.validation_stream:
-            loader_path = self.config['VAL_FILE_PATH']
-            overlap_length = 0
-        else:
-            loader_path = self.config['TRAIN_FILE_PATH']
-            overlap_length = self.config.get('OVERLAP_LEN_TOKENS', 64)
-        stream = TextLoaderStream(loader_path)
-        streamer = AdvancedDataStreamer(text_stream=stream, tokenizer=self.tokenizer,
-                                        seq_len=self.config['max_seq_len'], overlap_len_tokens=overlap_length, )
-        for item in streamer.stream_data(shuffle=True):
-            yield prepare_single_pretrain_item(item, self.tokenizer, self.config)
 
 
 def train(config: Dict[str, Any]):
@@ -74,9 +53,9 @@ def train(config: Dict[str, Any]):
         print(f"\n{'=' * 25} Epoch {epoch + 1}/{config['EPOCHS']} {'=' * 25}")
 
         # Training Data loader
-        dataset = StreamerDataset(config=config, tokenizer=tokenizer, validation_stream=False)
-        data_loader = DataLoader(dataset, batch_size=config['BATCH_SIZE'], num_workers=config.get('NUM_WORKERS', 1),
-                                 persistent_workers=True)
+        stream_dataset = PretrainDataset(config=config, tokenizer=tokenizer)
+        data_loader = DataLoader(stream_dataset, batch_size=config['BATCH_SIZE'],
+                                 num_workers=config.get('NUM_WORKERS', 1), persistent_workers=True, pin_memory=True)
         model.train()
         accum_loss = 0.0
         for i, batch in enumerate(data_loader):
@@ -156,7 +135,7 @@ def train(config: Dict[str, Any]):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run the PyTorch Multi Memory Transformer.")
-    parser.add_argument('--config', default='configs/test-config.json', type=str)
+    parser.add_argument('--config', default='configs/gidionv_pretrain.json', type=str)
     args = parser.parse_args()
 
     cfg = get_config()
