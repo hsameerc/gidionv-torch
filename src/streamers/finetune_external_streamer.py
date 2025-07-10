@@ -1,7 +1,8 @@
 import itertools
 import random
 import traceback
-from typing import Iterable, Dict, Optional
+from math import ceil
+from typing import Iterable, Dict
 
 import torch
 from datasets import load_dataset, tqdm
@@ -30,11 +31,11 @@ class FinetuneDatasetStream(IterableDataset):
         self.data_sources = {
             "web_questions": {
                 "id": "web_questions", "split": "train",
-                "weight": 0.10, "processor": self._process_web_questions
+                "weight": 0.15, "processor": self._process_web_questions
             },
             "natural_questions": {
                 "id": "google-research-datasets/natural_questions", "split": "train",
-                "weight": 0.30, "processor": self.process_natural_questions
+                "weight": 0.30, "processor": self._process_natural_questions
             },
             "alpaca": {
                 "id": "yahma/alpaca-cleaned", "split": "train",
@@ -48,50 +49,38 @@ class FinetuneDatasetStream(IterableDataset):
                 "id": "squad_v2", "split": "train",
                 "weight": 0.10, "processor": self._process_squad
             },
-            "daily_dialog": {
-                "id": "daily_dialog", "split": "train",
-                "weight": 0.10, "processor": self._process_daily_dialog
-            },
             "trivia_qa": {
                 "id": "trivia_qa", "name": "rc.nocontext", "split": "train",
                 "weight": 0.10, "processor": self._process_trivia_qa
             },
             "chain_of_thought": {
                 "id": "AlekseyKorshuk/chain-of-thoughts-chatml", "split": "train",
-                "weight": 0.10, "processor": self._process_cot
+                "weight": 0.15, "processor": self._process_cot
             },
         }
 
     @staticmethod
-    def _process_web_questions(example: dict) -> Optional[dict]:
-        """Processes a single example from the web_questions dataset."""
-        if not example.get('answers') or not example['answers']:
-            return None
-
-        return {
-            "instruction": example['question'].strip(),
-            "context": "",
-            "output": example['answers'][0].strip()
-        }
+    def _process_web_questions(example: dict) -> Iterable[Dict]:
+        if example.get('answers') and example['answers']:
+            instruction = example['question'].strip()
+            output = example['answers'][0].strip()
+            if instruction and output:
+                yield {"instruction": instruction, "context": "", "output": output}
 
     @staticmethod
-    def process_natural_questions(example: dict) -> Optional[dict]:
-        """Processes a single example from the Natural Questions dataset."""
+    def _process_natural_questions(example: dict) -> Iterable[Dict]:
         try:
             short_answers = example['annotations']['short_answers']
-            if len(short_answers) > 0 and len(short_answers[0]['text']) > 0:
+            if short_answers and short_answers[0]['text']:
                 instruction = example['question']['text'].strip()
                 output = short_answers[0]['text'][0].strip()
-
                 if instruction and output:
-                    return {"instruction": instruction, "context": "", "output": output}
+                    yield {"instruction": instruction, "context": "", "output": output}
         except (KeyError, IndexError):
-            return None
-        return None
+            pass
 
     @staticmethod
     def _process_alpaca(example: dict) -> Iterable[Dict]:
-        """Processes a single example from the Alpaca dataset."""
         instruction = example.get('instruction', '').strip()
         inp = example.get('input', '').strip()
         output = example.get('output', '').strip()
@@ -100,7 +89,6 @@ class FinetuneDatasetStream(IterableDataset):
 
     @staticmethod
     def _process_dolly(example: dict) -> Iterable[Dict]:
-        """Processes a single example from the Dolly-15k dataset."""
         instruction = example.get('instruction', '').strip()
         context = example.get('context', '').strip()
         output = example.get('response', '').strip()
@@ -125,33 +113,25 @@ class FinetuneDatasetStream(IterableDataset):
             yield {"instruction": question, "context": "", "output": answer}
 
     @staticmethod
-    def _process_daily_dialog(example: dict) -> Iterable[Dict]:
-        """Unrolls a dialogue from the daily_dialog dataset into multiple samples."""
-        dialog = example.get('dialog', [])
-        if not dialog or len(dialog) < 2:
-            return
-
-        for i in range(1, len(dialog)):
-            context_turns = dialog[:i]
-            target_output = dialog[i].strip()
-            instruction = "Continue the conversation naturally."
-            context = "\n".join(f"Turn {t + 1}: {turn.strip()}" for t, turn in enumerate(context_turns))
-            if target_output:
-                yield {"instruction": instruction, "context": context, "output": target_output}
-
-    @staticmethod
     def _process_cot(example: dict) -> Iterable[Dict]:
         """Processes a conversation from the Chain-of-Thoughts dataset."""
         conversation = example.get('conversation', [])
-        if not conversation or len(conversation) < 2:
-            return
-
         for i in range(0, len(conversation) - 1, 2):
-            if conversation[i]['role'] == 'user' and conversation[i + 1]['role'] == 'assistant':
-                instruction = conversation[i]['content'].strip()
-                output = conversation[i + 1]['content'].strip()
+            user_msg = conversation[i]
+            assistant_msg = conversation[i + 1]
+            if (
+                    user_msg.get('role', '').lower() == 'user' and
+                    assistant_msg.get('role', '').lower() == 'assistant'
+            ):
+                instruction = user_msg.get('content', '').strip()
+                output = assistant_msg.get('content', '').strip()
+
                 if instruction and output:
-                    yield {"instruction": instruction, "context": "", "output": output}
+                    yield {
+                        "instruction": instruction,
+                        "context": "",
+                        "output": output
+                    }
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
@@ -164,11 +144,8 @@ class FinetuneDatasetStream(IterableDataset):
         for source_name, source_info in self.data_sources.items():
             try:
                 ds = load_dataset(
-                    path=source_info["id"],
-                    name=source_info.get("name"),  # Use .get() for optional 'name'
-                    split=source_info["split"],
-                    streaming=True,
-                    trust_remote_code=True
+                    path=source_info["id"], name=source_info.get("name"),
+                    split=source_info["split"], streaming=True,
                 )
 
                 processed_generator = (
@@ -192,47 +169,43 @@ class FinetuneDatasetStream(IterableDataset):
         total_prob = sum(probabilities)
         probabilities = [p / total_prob for p in probabilities]
 
-        interleaved_stream = self._efficient_weighted_round_robin(streams, probabilities)
+        interleaved_structured_stream = self._efficient_weighted_round_robin(streams, probabilities, worker_info)
 
-        for raw_item in interleaved_stream:
+        for raw_item in interleaved_structured_stream:
             try:
-                tokenized_item = prepare_single_instruction_item(
+                yield prepare_single_instruction_item(
                     raw_item, self.tokenizer, self.config, self.special_tokens
                 )
-                if tokenized_item and "input_ids" in tokenized_item and len(tokenized_item["input_ids"]) > 0:
-                    yield tokenized_item
             except Exception as e:
                 print(f"Skipping item due to preparation error: {e}. Item: {raw_item}")
                 continue
 
     @staticmethod
-    def _efficient_weighted_round_robin(streams, weights):
-        """High-performance weighted round-robin iterator."""
+    def _efficient_weighted_round_robin(streams, weights, worker_info):
+        """A high-performance weighted round-robin iterator."""
         iterators = [iter(s) for s in streams]
-        weight_counts = [int(w * 1000) for w in weights]
+        weight_counts = [max(1, ceil(w * 1000)) for w in weights]
         pool = list(itertools.chain.from_iterable([[i] * wc for i, wc in enumerate(weight_counts)]))
-        random.shuffle(pool)
+        if worker_info is not None:
+            random.seed(worker_info.seed)
         active_iterators = list(range(len(iterators)))
         while active_iterators:
             if not pool:
+                if not active_iterators:
+                    break
                 pool = list(itertools.chain.from_iterable([[i] * weight_counts[i] for i in active_iterators]))
-                if not pool: break
                 random.shuffle(pool)
             idx_to_try = pool.pop()
             try:
                 yield next(iterators[idx_to_try])
             except StopIteration:
                 if idx_to_try in active_iterators:
+                    print(f"[Worker {worker_info.id if worker_info else 0}] Stream {idx_to_try} exhausted.")
                     active_iterators.remove(idx_to_try)
                 pool = [i for i in pool if i != idx_to_try]
-            except (KeyError, ValueError) as e:
-                print(f"[Skipping example due to error: {e}")
-                continue
             except Exception as e:
-                print(f"[Unexpected error in iterator {idx_to_try}: {type(e).__name__}: {e}")
-                traceback.print_exc()
-                active_iterators.remove(idx_to_try)
-                pool = [i for i in pool if i != idx_to_try]
+                print(f"[Stream {idx_to_try}] Skipping due to exception: {e}")
+                continue
 
 
 class FinetuneValidationDataset(IterableDataset):
@@ -279,7 +252,7 @@ class FinetuneValidationDataset(IterableDataset):
                 self.val_source["id"],
                 split=self.val_source.get("split", "validation"),
                 streaming=True,
-                trust_remote_code=True
+                # trust_remote_code=True
             )
         except Exception as e:
             print(f"Could not load validation stream. Error: {e}")

@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 
 from src.config.config import get_config
 from src.data.saver_loader import save_checkpoint, load_checkpoint
-from src.streamers.datasets import FinetuneDataset
+from src.streamers.finetune_external_streamer import FinetuneDatasetStream, FinetuneValidationDataset
 from src.utils.trainerhelper import get_learning_rate, calculate_validation_loss
 
 
@@ -51,7 +51,7 @@ def train(config: Dict[str, Any]):
 
     special_tokens = {"USER": "<USER>", "ASSISTANT": "<ASSISTANT>", "INST": "<INST>", "END_INST": "</INST>"}
     # Validation Data loader
-    val_dataset = FinetuneDataset(filepath=config['VAL_FILE_PATH'], tokenizer=tokenizer, config=config,
+    val_dataset = FinetuneValidationDataset(tokenizer=tokenizer, config=config,
                                   special_tokens=special_tokens)
     val_data_loader = DataLoader(val_dataset, batch_size=config['BATCH_SIZE'], num_workers=config.get('NUM_WORKERS', 1),
                                  persistent_workers=True)
@@ -59,7 +59,7 @@ def train(config: Dict[str, Any]):
         print(f"\n{'=' * 25} Epoch {epoch + 1}/{config['EPOCHS']} {'=' * 25}")
 
         # Training Data loader
-        dataset = FinetuneDataset(filepath=config['TRAIN_FILE_PATH'], tokenizer=tokenizer, config=config,
+        dataset = FinetuneDatasetStream(tokenizer=tokenizer, config=config,
                                   special_tokens=special_tokens)
         data_loader = DataLoader(dataset, batch_size=config['BATCH_SIZE'], num_workers=config.get('NUM_WORKERS', 1),
                                  persistent_workers=True)
