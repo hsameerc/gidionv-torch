@@ -101,6 +101,7 @@ def get_config() -> Dict[str, Any]:
         'MEMORY_PATH': 'memory',
         'LOG_FILE_PATH': 'logs/training_log_v1.0.csv',
         'GRADIENT_NORM_LOG_PATH': 'logs/gradient_norms_v1.0.csv',
+        'NUM_WORKERS': 1,
         'd_model': 512,
         'vocab_size': 50257,
         'max_seq_len': 512,

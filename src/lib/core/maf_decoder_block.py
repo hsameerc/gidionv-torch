@@ -57,7 +57,6 @@ class MemoryAttentionFusionDecoderBlock(nn.Module):
         ln1_out = self.ln1(x)
         self_attn_output, _, self_attn_kv_cache = self.masked_self_attn(query=ln1_out, key=ln1_out, value=ln1_out,
                                                                         attn_mask=target_padding_mask, is_causal=True,
-                                                                        # Replaces use_causal_mask=True
                                                                         kv_cache=kv_cache.get('self_attn'))
 
         # Dropout and Residual Connection
