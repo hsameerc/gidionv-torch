@@ -4,14 +4,13 @@ from typing import Dict, Any, Optional
 def get_config_v5(base_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Defines the complete configuration for training the augmented model."""
     config_default = {
-        "TASK_TYPE": "pretraining_text",
+        "TRAINING_TYPE": "pretraining",
         "MODEL_NAME": "gideon_v4_model",
         "MODEL_DIR": "checkpoints/gideon_v4",
         "LOG_FILE_PATH": "logs/gideon_v4_train.csv",
         "TOKENIZER_PATH": "tokenizers/bpe_50K",
-        "TRAIN_FILE_PATH": "sample-data/train.txt",
-        "VAL_FILE_PATH": "sample-data/val.txt",
-        "VAL_AUDIO_DIR": "data/audio_files/",
+        "TRAIN_FILE_PATH": "data/train.txt",
+        "VAL_FILE_PATH": "data/val.txt",
         "CHUNK_SIZE_CHARS": 50000000,
         "OVERLAP_LEN_TOKENS": 64,
         "text_memory_encoder": {
@@ -22,6 +21,7 @@ def get_config_v5(base_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             ],
             "num_memory_slots": 2
         },
+        "AUDIO_DIR": "data/audio_files/",
         "audio_encoder": {
             "sample_rate": 16000,
             "num_freq_bins": 80,
@@ -32,7 +32,7 @@ def get_config_v5(base_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
                 2048
             ]
         },
-        "VAL_IMAGE_DIR": "data/images/",
+        "IMAGE_DIR": "data/images/",
         "vision_encoder": {
             "image_size": 224,
             "patch_size": 16,
@@ -151,4 +151,5 @@ def get_config() -> Dict[str, Any]:
         'resume_training': True,
         'total_steps': 0,
         'last_trained_epoch': 0,
+        'special_tokens': {"USER": "<USER>", "ASSISTANT": "<ASSISTANT>", "INST": "<INST>", "END_INST": "</INST>"}
     }
