@@ -95,7 +95,7 @@ class MemoryOfExpertsTransformer(nn.Module):
                         padding_mask = memory_padding_masks[i]
                         mem_emb = self.token_embedding(ids) * math.sqrt(self.d_model)
                         mem_pos_emb = self.positional_encoding(mem_emb)
-                        text_ctx = self.text_memory_encoder(mem_pos_emb, padding_mask=padding_mask)
+                        text_ctx = self.memory_encoder(mem_pos_emb, padding_mask=padding_mask)
                         encoded_contexts.append(text_ctx)
                     else:
                         B = input_ids.shape[0]
