@@ -30,35 +30,35 @@ class FinetuneDatasetStream(IterableDataset):
         self.data_sources = {
             "web_questions": {
                 "id": "web_questions", "split": "train",
-                "weight": 0.10, "processor": self._process_web_questions
+                "weight": 0.10, "processor": FinetuneDatasetStream._process_web_questions
             },
             "natural_questions": {
                 "id": "google-research-datasets/natural_questions", "split": "train",
-                "weight": 0.30, "processor": self.process_natural_questions
+                "weight": 0.30, "processor": FinetuneDatasetStream.process_natural_questions
             },
             "alpaca": {
                 "id": "yahma/alpaca-cleaned", "split": "train",
-                "weight": 0.10, "processor": self._process_alpaca
+                "weight": 0.10, "processor": FinetuneDatasetStream._process_alpaca
             },
             "dolly": {
                 "id": "databricks/databricks-dolly-15k", "split": "train",
-                "weight": 0.10, "processor": self._process_dolly
+                "weight": 0.10, "processor": FinetuneDatasetStream._process_dolly
             },
             "squad_v2": {
                 "id": "squad_v2", "split": "train",
-                "weight": 0.10, "processor": self._process_squad
+                "weight": 0.10, "processor": FinetuneDatasetStream._process_squad
             },
             "daily_dialog": {
                 "id": "daily_dialog", "split": "train",
-                "weight": 0.10, "processor": self._process_daily_dialog
+                "weight": 0.10, "processor": FinetuneDatasetStream._process_daily_dialog
             },
             "trivia_qa": {
                 "id": "trivia_qa", "name": "rc.nocontext", "split": "train",
-                "weight": 0.10, "processor": self._process_trivia_qa
+                "weight": 0.10, "processor": FinetuneDatasetStream._process_trivia_qa
             },
             "chain_of_thought": {
                 "id": "AlekseyKorshuk/chain-of-thoughts-chatml", "split": "train",
-                "weight": 0.10, "processor": self._process_cot
+                "weight": 0.10, "processor": FinetuneDatasetStream._process_cot
             },
         }
 
