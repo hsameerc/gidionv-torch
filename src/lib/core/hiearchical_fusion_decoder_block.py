@@ -40,7 +40,8 @@ class HierarchicalFusionDecoderBlock(nn.Module):
         self.dropout3 = nn.Dropout(dropout_rate)
 
     def forward(self, x: torch.Tensor, memory_streams: List[torch.Tensor],
-                target_padding_mask: Optional[torch.Tensor] = None, memory_padding_mask: Optional[torch.Tensor] = None,
+                target_padding_mask: Optional[torch.Tensor] = None,
+                memory_padding_masks: Optional[List[torch.Tensor]] = None,
                 kv_cache: Optional[Dict[str, Any]] = None) -> Tuple[torch.Tensor, Dict[str, Any]]:
         kv_cache = kv_cache if kv_cache is not None else {}
 
@@ -78,10 +79,18 @@ class HierarchicalFusionDecoderBlock(nn.Module):
             # Fused context is a weighted average of the expert streams
             fused_memory_context = (all_experts_tensor * gating_scores).sum(dim=1)  # Shape: (B, S_mem, D)
 
+            # Stacking the list of masks into a single tensor: (B, num_experts, S_max)
+            fused_memory_padding_mask = None
+            if memory_padding_masks:
+                all_masks_tensor = torch.stack(memory_padding_masks, dim=1)
+                # The result is a single mask of shape (B, S_max).
+                # A position is `True` if it was `True` in at least one of the stream masks.
+                fused_memory_padding_mask = torch.any(all_masks_tensor, dim=1)
+
             # Cross-Attention to Fused Context
             ln_cross_out = self.ln_cross(residual1)
             cross_output, _, _ = self.cross_attention(query=ln_cross_out, key=fused_memory_context,
-                                                      value=fused_memory_context, attn_mask=memory_padding_mask
+                                                      value=fused_memory_context, attn_mask=fused_memory_padding_mask
                                                       # This mask needs to correspond to the fused context
                                                       )
             residual2 = residual1 + self.dropout2(cross_output)

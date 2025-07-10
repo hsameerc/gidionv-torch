@@ -81,22 +81,47 @@ class MemoryOfExpertsTransformer(nn.Module):
             Tuple[torch.Tensor, Optional[List[Dict]]]:
         """Performs a full forward pass. No `cache` for backprop is needed."""
 
-        # Encode Memory Streams / Contexts
+        # Encoding Memory Streams / Contexts
         if memory_contexts is None:
-            # Create or Use padding masks for all memory streams
-            if memory_padding_masks is None:
-                memory_padding_masks = [(ids != self.pad_token_id) for ids in memory_streams_ids]
-            memory_contexts = []
-            if memory_streams_ids:
+            # If contexts are not provided, we MUST encode them from IDs.
+            if memory_streams_ids is None:
+                memory_contexts = []
+            else:
+                encoded_contexts = []
+                if memory_padding_masks is None:
+                    memory_padding_masks = [(ids != self.pad_token_id) for ids in memory_streams_ids]
                 for i, ids in enumerate(memory_streams_ids):
-                    if memory_padding_masks is not None:
-                        mem_padding_mask = memory_padding_masks[i]
+                    if ids.numel() > 0 and ids.shape[1] > 0:
+                        padding_mask = memory_padding_masks[i]
+                        mem_emb = self.token_embedding(ids) * math.sqrt(self.d_model)
+                        mem_pos_emb = self.positional_encoding(mem_emb)
+                        text_ctx = self.text_memory_encoder(mem_pos_emb, padding_mask=padding_mask)
+                        encoded_contexts.append(text_ctx)
                     else:
-                        mem_padding_mask = (ids != self.pad_token_id)
-                    mem_emb = self.token_embedding(ids) * (self.d_model ** 0.5)
-                    mem_pos_emb = self.positional_encoding(mem_emb)
-                    mem_ctx = self.memory_encoder(mem_pos_emb, padding_mask=mem_padding_mask)
-                    memory_contexts.append(mem_ctx)
+                        B = input_ids.shape[0]
+                        empty_ctx = torch.empty((B, 0, self.d_model), device=input_ids.device,
+                                                dtype=self.token_embedding.weight.dtype)
+                        encoded_contexts.append(empty_ctx)
+                memory_contexts = encoded_contexts
+
+        # Padding all gathered memory contexts to a uniform sequence length
+        final_padded_contexts = []
+        final_padded_masks = []
+
+        if memory_contexts:
+            max_mem_len = max(ctx.shape[1] for ctx in memory_contexts if ctx.numel() > 0) if any(
+                ctx.numel() > 0 for ctx in memory_contexts) else 0
+            for context_tensor in memory_contexts:
+                B, S, D = context_tensor.shape
+                padding_needed = max_mem_len - S
+                if padding_needed > 0:
+                    padded_context = F.pad(context_tensor, (0, 0, 0, padding_needed), 'constant', 0)
+                else:
+                    padded_context = context_tensor
+                final_padded_contexts.append(padded_context)
+                # Creating the final padding mask for the now-padded context
+                mask = torch.arange(max_mem_len, device=context_tensor.device)[None, :] < S
+                final_padded_masks.append(mask.expand(B, -1))  # Expanded to batch size
 
         # Process Main Input
         target_padding_mask = (input_ids != self.pad_token_id)
@@ -106,15 +131,11 @@ class MemoryOfExpertsTransformer(nn.Module):
 
         # Pass through Decoder Stack
         next_kv_caches = [] if kv_cache_list is not None else None
-        # This needs a combined padding mask for the fused memory context
-        # For simplicity, we can create it on the fly or assume it's handled.
-        # Let's assume a simple case for now where the fused context doesn't need a complex mask.
-        fused_memory_padding_mask = None
 
         for i, block in enumerate(self.decoder_blocks):
             block_kv_cache = kv_cache_list[i] if kv_cache_list else None
-            x, updated_kv_cache = block(x, memory_streams=memory_contexts, target_padding_mask=target_padding_mask,
-                                        memory_padding_mask=fused_memory_padding_mask, kv_cache=block_kv_cache)
+            x, updated_kv_cache = block(x, memory_streams=final_padded_contexts, target_padding_mask=target_padding_mask,
+                                        memory_padding_masks=final_padded_masks, kv_cache=block_kv_cache)
             if next_kv_caches is not None:
                 next_kv_caches.append(updated_kv_cache)
 
