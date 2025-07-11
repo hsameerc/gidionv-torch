@@ -113,38 +113,4 @@ def vision_language_collate_fn(batch: List[Optional[Dict]], pad_id: int, bos_id:
 
     #  Create Final Dictionary
     return {"input_ids": input_ids, "target_ids": target_ids, "padding_mask": (input_ids != pad_id),
-        "memory_streams_ids": memory_streams_ids, "memory_padding_masks": memory_padding_masks}
-
-# Example Usage
-# from functools import partial
-
-# def main():
-#     # ... setup config, tokenizer ...
-#     pad_id = tokenizer.pad_token_id
-
-#     # 1. Create the Dataset instance
-#     train_dataset = VisionLanguageDataset(
-#         annotations_path=config['train_annotations_path'],
-#         image_dir=config['train_image_dir'],
-#         tokenizer=tokenizer,
-#         image_size=config['image_size']
-#     )
-
-#     # 2. Create the collate function with the pad_id baked in
-#     collate_fn = partial(vision_language_collate_fn, pad_id=pad_id)
-
-#     # 3. Create the DataLoader
-#     # This replaces your entire VisionDataLoader class and stream_batches method.
-#     train_loader = DataLoader(
-#         train_dataset,
-#         batch_size=config['BATCH_SIZE'],
-#         shuffle=True,  # DataLoader can shuffle the data every epoch
-#         num_workers=4, # Use multiple processes to load data in parallel
-#         collate_fn=collate_fn
-#     )
-
-#     # 4. Use it in your training loop
-#     for batch in train_loader:
-#         images = batch['image_input'].to(device)
-#         texts = batch['text_input'].to(device)
-#         # ... proceed with training ...
+        "image_ids": image_tensors, "memory_padding_masks": memory_padding_masks}

@@ -34,10 +34,10 @@ class MultiModalMemoryTransformer(nn.Module):
         self.input_dropout = nn.Dropout(config.get('dropout_rate', 0.1))
 
         # Modality-Specific Encoders
-        self.text_memory_encoder = MemoryEncoder(num_layers=config['text_memory_encoder']['num_layers'],
+        self.text_memory_encoder = MemoryEncoder(num_layers=config['memory_encoder']['num_layers'],
                                                  d_model=self.d_model,
-                                                 num_heads=config['text_memory_encoder']['num_heads'],
-                                                 ff_hidden_config=config['text_memory_encoder']['ff_hidden_config'],
+                                                 num_heads=config['memory_encoder']['num_heads'],
+                                                 ff_hidden_config=config['memory_encoder']['ff_hidden_config'],
                                                  dropout_rate=config.get('dropout_rate', 0.1), dtype=dtype)
         self.vision_encoder = VisionEncoder(image_size=config['vision_encoder']['image_size'],
                                             patch_size=config['vision_encoder']['patch_size'],
@@ -86,8 +86,12 @@ class MultiModalMemoryTransformer(nn.Module):
             scale_factor = 1 / math.sqrt(2.0 * num_layers)
             module.weight.data.normal_(mean=0.0, std=0.02 * scale_factor)
 
-    def forward(self, input_ids: torch.Tensor, text_memory_ids: Optional[List[torch.Tensor]] = None,
-                image_input: Optional[torch.Tensor] = None, audio_input: Optional[torch.Tensor] = None,
+    def forward(self, input_ids: torch.Tensor,
+                text_memory_ids: Optional[List[torch.Tensor]] = None,
+                image_input: Optional[torch.Tensor] = None,
+                image_padding_mask: Optional[torch.Tensor] = None,
+                audio_input: Optional[torch.Tensor] = None,
+                audio_padding_mask: Optional[torch.Tensor] = None,
                 kv_cache_list: Optional[List[Dict]] = None) -> Tuple[torch.Tensor, Optional[List[Dict]]]:
 
         memory_contexts = []
