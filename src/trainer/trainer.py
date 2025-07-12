@@ -17,7 +17,7 @@ class Trainer:
 
     def train(self):
         """
-            The main, production-ready training script using the PyTorch framework.
+        The main, training script.
         """
         # Initial Setup
         if self.config['RANDOM_SEED']:

@@ -16,7 +16,7 @@ from src.utils.trainerhelper import get_learning_rate, calculate_validation_loss
 
 def train(config: Dict[str, Any]):
     """
-        The main, production-ready training script using the PyTorch framework.
+    The main, training script.
     """
     # Initial Setup
     if config['RANDOM_SEED']:

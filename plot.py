@@ -1,7 +1,9 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-from pathlib import Path
+import argparse
 import time
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
 
 plt.ion()
 
@@ -32,7 +34,8 @@ def all_plot(df, fig, axs):
 
     # Plot 2: Step vs. Perplexity
     if not val_df.empty:
-        axs[0, 1].plot(val_df['step'], val_df['perplexity'].rolling(window=1, min_periods=1).mean(), label='Perplexity', color='purple', marker='o',
+        axs[0, 1].plot(val_df['step'], val_df['perplexity'].rolling(window=1, min_periods=1).mean(), label='Perplexity',
+                       color='purple', marker='o',
                        linestyle='-')
         axs[0, 1].set_title("Validation Perplexity")
         axs[0, 1].set_xlabel("Step")
@@ -43,7 +46,8 @@ def all_plot(df, fig, axs):
 
     # Plot 3: Step vs. Validation Loss
     if not val_df.empty:
-        axs[1, 0].plot(val_df['step'], val_df['val_loss'].rolling(window=1, min_periods=1).mean(), label='Validation Loss', color='red', marker='o',
+        axs[1, 0].plot(val_df['step'], val_df['val_loss'].rolling(window=1, min_periods=1).mean(),
+                       label='Validation Loss', color='red', marker='o',
                        linestyle='-')
         axs[1, 0].set_title("Validation Loss")
         axs[1, 0].set_xlabel("Step")
@@ -53,7 +57,8 @@ def all_plot(df, fig, axs):
 
     # Plot 4: Learning Rate over Steps
     if 'lr' in df.columns and not df['lr'].isnull().all():
-        axs[1, 1].plot(df['step'], df['lr'].rolling(window=100, min_periods=1).mean(), label='Learning Rate', color='green')
+        axs[1, 1].plot(df['step'], df['lr'].rolling(window=100, min_periods=1).mean(), label='Learning Rate',
+                       color='green')
         axs[1, 1].set_title("Learning Rate Schedule")
         axs[1, 1].set_xlabel("Step")
         axs[1, 1].set_ylabel("Learning Rate")
@@ -83,8 +88,8 @@ def all_plot(df, fig, axs):
     fig.canvas.flush_events()
 
 
-if __name__ == "__main__":
-    DEST_LOG = Path("checkpoints/gidion_story_expert/gidion_story_expert.csv")
+def launch_log_plot(destination: str):
+    DEST_LOG = Path(destination)
     REFRESH_INTERVAL_SECS = 30
     last_size = -1
 
@@ -114,3 +119,11 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"❌ Error: {e}")
         plt.pause(REFRESH_INTERVAL_SECS)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run the Gidion Plot.")
+    parser.add_argument('--path', type=str, default="research/models/gidionv_multi_memory/gidionv_multi_memory.csv",
+                        help="Path to a Log file to override defaults.")
+    args = parser.parse_args()
+    launch_log_plot(args.path)

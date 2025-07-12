@@ -5,7 +5,7 @@ from src.loaders.text_loader import TextLoaderStream, AdvancedDataStreamer, Inde
 from src.utils.prepare import prepare_single_pretrain_item, prepare_single_instruction_item
 
 
-class StreamerDataset(IterableDataset):
+class StreamLocalDataset(IterableDataset):
     def __init__(self, config, tokenizer: HFTokenizerWrapper, validation_stream: bool = False):
         self.config = config
         self.tokenizer = tokenizer
@@ -25,7 +25,7 @@ class StreamerDataset(IterableDataset):
             yield prepare_single_pretrain_item(item, self.tokenizer, self.config)
 
 
-class FinetuneDataset(Dataset):
+class FinetuneLocalDataset(Dataset):
     """
     A map-style Dataset for fine-tuning on structured .jsonl files.
     It uses an IndexedJsonlDataset for efficient random access.
