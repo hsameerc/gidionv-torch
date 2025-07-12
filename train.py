@@ -136,7 +136,7 @@ def train(config: Dict[str, Any]):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run the PyTorch Multi Memory Transformer.")
-    parser.add_argument('--config', default='configs/gidionv_multi_memory.json', type=str)
+    parser.add_argument('--config', default='configs/gidionv_multi_memory_experts.json', type=str)
     args = parser.parse_args()
 
     cfg = get_config()
