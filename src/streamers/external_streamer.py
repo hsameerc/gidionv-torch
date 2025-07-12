@@ -39,7 +39,7 @@ class PretrainDataset(IterableDataset):
             },
             "arxiv": {
                 "id": "togethercomputer/RedPajama-Data-1T", "name": "arxiv",
-                "weight": 0.045
+                "weight": 0.09
             },
             "wikipedia": {
                 "id": "togethercomputer/RedPajama-Data-1T", "name": "wikipedia",
@@ -82,8 +82,10 @@ class PretrainDataset(IterableDataset):
         for source_name, source_info in self.data_sources.items():
             try:
                 ds = load_dataset(
-                    path=source_info["id"], name=source_info["name"],
-                    split="train", streaming=True, trust_remote_code=True
+                    path=source_info["id"],
+                    name=source_info["name"],
+                    split="train",
+                    streaming=True,
                 )
 
                 processed_stream = ds.map(self._process_and_filter)
@@ -185,7 +187,7 @@ class PretrainValidationDataset(Dataset):
                 val_source.get("name"),
                 split=val_source.get("split", "validation"),
                 streaming=True,
-                trust_remote_code=True
+                # trust_remote_code=True
             )
             val_dataset_subset = val_dataset.take(self.val_max_samples)
             print(f"Loading up to {self.val_max_samples} documents from the validation set...")
