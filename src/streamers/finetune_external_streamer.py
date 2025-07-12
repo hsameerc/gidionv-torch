@@ -138,23 +138,25 @@ class FinetuneDatasetStream(IterableDataset):
         worker_id = worker_info.id if worker_info else 0
         print(f"[Worker {worker_id}] Initializing fine-tuning streaming pipeline...")
 
-        streams = []
+        stream_factories = []
         probabilities = []
 
         for source_name, source_info in self.data_sources.items():
             try:
-                ds = load_dataset(
-                    path=source_info["id"], name=source_info.get("name"),
-                    split=source_info["split"], streaming=True,
-                )
+                def make_stream_fn(source_info=source_info):
+                    ds = load_dataset(
+                        path=source_info["id"],
+                        name=source_info.get("name"),
+                        split=source_info["split"],
+                        streaming=True,
+                    )
+                    return (
+                        structured_item
+                        for raw_example in ds
+                        for structured_item in source_info["processor"](raw_example)
+                    )
 
-                processed_generator = (
-                    structured_item
-                    for raw_example in ds
-                    for structured_item in source_info["processor"](raw_example)
-                )
-
-                streams.append(processed_generator)
+                stream_factories.append(make_stream_fn)
                 probabilities.append(source_info["weight"])
                 print(f"[Worker {worker_id}] Initialized stream: {source_name}")
 
@@ -163,13 +165,15 @@ class FinetuneDatasetStream(IterableDataset):
                 traceback.print_exc()
                 continue
 
-        if not streams:
+        if not stream_factories:
             raise RuntimeError("Fatal: No fine-tuning dataset streams could be initialized.")
 
         total_prob = sum(probabilities)
         probabilities = [p / total_prob for p in probabilities]
 
-        interleaved_structured_stream = self._efficient_weighted_round_robin(streams, probabilities, worker_info)
+        interleaved_structured_stream = self._efficient_weighted_round_robin(
+            stream_factories, probabilities, worker_info
+        )
 
         for raw_item in interleaved_structured_stream:
             try:
@@ -181,28 +185,34 @@ class FinetuneDatasetStream(IterableDataset):
                 continue
 
     @staticmethod
-    def _efficient_weighted_round_robin(streams, weights, worker_info):
-        """A high-performance weighted round-robin iterator."""
-        iterators = [iter(s) for s in streams]
+    def _efficient_weighted_round_robin(stream_factories, weights, worker_info):
+        """A high-performance weighted round-robin iterator with restartable streams."""
+        iterators = [iter(factory()) for factory in stream_factories]
         weight_counts = [max(1, ceil(w * 1000)) for w in weights]
         pool = list(itertools.chain.from_iterable([[i] * wc for i, wc in enumerate(weight_counts)]))
+
         if worker_info is not None:
             random.seed(worker_info.seed)
+
         active_iterators = list(range(len(iterators)))
+
         while active_iterators:
             if not pool:
-                if not active_iterators:
-                    break
                 pool = list(itertools.chain.from_iterable([[i] * weight_counts[i] for i in active_iterators]))
                 random.shuffle(pool)
+
             idx_to_try = pool.pop()
             try:
                 yield next(iterators[idx_to_try])
             except StopIteration:
-                if idx_to_try in active_iterators:
-                    print(f"[Worker {worker_info.id if worker_info else 0}] Stream {idx_to_try} exhausted.")
+                print(f"[Worker {worker_info.id if worker_info else 0}] Stream {idx_to_try} exhausted. Restarting...")
+                try:
+                    iterators[idx_to_try] = iter(stream_factories[idx_to_try]())
+                    yield next(iterators[idx_to_try])
+                except Exception as e:
+                    print(f"[Stream {idx_to_try}] Failed to restart. Removing. Reason: {e}")
                     active_iterators.remove(idx_to_try)
-                pool = [i for i in pool if i != idx_to_try]
+                    pool = [i for i in pool if i != idx_to_try]
             except Exception as e:
                 print(f"[Stream {idx_to_try}] Skipping due to exception: {e}")
                 continue
