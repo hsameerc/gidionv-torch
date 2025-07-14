@@ -73,88 +73,75 @@ class AudioLanguageDataset(Dataset):
         return {"audio_input": audio_tensor, "text_target_ids": torch.tensor(text_ids, dtype=torch.long)}
 
 
-def audio_language_collate_fn(batch: List[Optional[Dict]], pad_id: int, bos_id: int, config: dict) -> Dict:
+def audio_language_collate_fn(batch: List[Optional[Dict]], pad_id: int, bos_id: int, eos_id: int, config: dict) -> Dict:
     """
-    Complete collate function for audio-language pairs, prepared for a multi-memory transformer.
-    It places the audio context in the first memory slot and pads the rest.
+    Prepares and collates a batch of audio-language data for a transformer model.
+
+    This function takes a list of samples (each a dictionary containing an audio spectrogram and
+    tokenized text), and formats them into tensors ready for model training. It handles:
+    - Padding variable-length audio spectrograms to the same time dimension.
+    - Creating encoder padding masks for the audio features.
+    - Preparing decoder `input_ids` and `target_ids` for teacher-forcing.
+    - Padding all text sequences to the same length within the batch.
+    - Setting up placeholders for a multi-memory architecture.
+
+    Args:
+        batch: A list of dictionary samples from the Dataset. Each dict should have
+               'audio_input' (Tensor of shape [Freq, Time]) and 'text_target_ids' (Tensor).
+        pad_id: The token ID for padding.
+        bos_id: The token ID for "beginning of sentence".
+        eos_id: The token ID for "end of sentence".
+        config: A configuration dictionary containing model and data parameters.
+
+    Returns:
+        A dictionary of tensors ready for the model's forward pass.
     """
-    # Filter out any samples that failed to load
+    # Filtering out any samples that failed to load
     batch = [item for item in batch if item is not None]
     if not batch:
         return {}
 
     batch_size = len(batch)
 
-    # Prepare Audio Input (The primary memory stream)
-    audio_tensors = [item['audio_input'] for item in batch]
+    # Preparing Audio Inputs
+    # Audio tensors have variable length in the time dimension.
+    audio_tensors = [item['audio_input'] for item in batch]  # List of (Freq, Time) tensors
+    audio_lengths = torch.tensor([t.shape[1] for t in audio_tensors])
+
+    # To use pad_sequence on the time dimension, we must temporarily make it the first dimension.
+    # (Freq, Time) -> (Time, Freq)
     audio_tensors_t = [t.transpose(0, 1) for t in audio_tensors]
     padded_audio_t = torch.nn.utils.rnn.pad_sequence(audio_tensors_t, batch_first=True, padding_value=0.0)
-    padded_audio = padded_audio_t.transpose(1, 2)  # (B, Freq, Time)
 
-    # Create the padding mask for the audio context
-    audio_lengths = torch.tensor([t.shape[1] for t in audio_tensors])
-    audio_padding_mask = torch.arange(padded_audio.shape[2])[None, :] < audio_lengths[:, None]
+    # Transpose back to the standard (Batch, Freq, Time) format
+    padded_audio = padded_audio_t.transpose(1, 2)
 
-    # The AudioEncoder will convert this to (B, Time, d_model). We'll treat that as our memory stream.
-    # The `forward` pass of the main model will handle the encoding step.
-    memory_streams_ids = [padded_audio]
-    memory_padding_masks = [audio_padding_mask]
+    # Creating a boolean mask for the audio encoder. True where there is real data, False where there is padding.
+    max_audio_len = padded_audio.shape[2]
+    audio_padding_mask = torch.arange(max_audio_len)[None, :] < audio_lengths[:, None]
 
-    num_total_mem_streams = config['model']['num_memory_streams']
-    if num_total_mem_streams > 1:
-        # Create an empty placeholder tensor for other streams.
-        # This one is tricky because it's token IDs, not embeddings yet.
-        # We can pass an empty tensor of shape (batch_size, 0).
-        empty_stream = torch.empty((batch_size, 0), dtype=torch.long)
-        empty_mask = torch.zeros((batch_size, 0), dtype=torch.bool)
-
-        for _ in range(num_total_mem_streams - 1):
-            memory_streams_ids.append(empty_stream)
-            memory_padding_masks.append(empty_mask)
-
-    # Prepare Text Input/Target for the Decoder
+    # Preparing Text Inputs and Targets for Teacher Forcing ---
+    # The key 'text_target_ids' comes from your dataset implementation.
     text_sequences = [item['text_target_ids'] for item in batch]
-    input_ids_list = [torch.cat([torch.tensor([bos_id]), seq]) for seq in text_sequences]
-    target_ids_list = [seq for seq in text_sequences]
 
+    input_ids_list = [torch.cat([torch.tensor([bos_id]), seq]) for seq in text_sequences]
+    target_ids_list = [torch.cat([seq, torch.tensor([eos_id])]) for seq in text_sequences]
+
+    # Padding both lists of tensors to the maximum length in the batch.
     input_ids = torch.nn.utils.rnn.pad_sequence(input_ids_list, batch_first=True, padding_value=pad_id)
     target_ids = torch.nn.utils.rnn.pad_sequence(target_ids_list, batch_first=True, padding_value=pad_id)
+
+    # The loss function should ignore padded tokens in the targets.
     target_ids[target_ids == pad_id] = -100
 
-    # Create Final Dictionary
-    return {"input_ids": input_ids, "target_ids": target_ids, "padding_mask": (input_ids != pad_id),
-            "memory_streams_ids": memory_streams_ids, "memory_padding_masks": memory_padding_masks}
+    # Creating the decoder's padding mask to ignore padded tokens in attention.
+    decoder_padding_mask = (input_ids != pad_id)
 
-# Example Usage
-# from functools import partial
-
-# def main():
-#     # ... setup config, tokenizer ...
-#     pad_id = tokenizer.pad_token_id
-
-#     # 1. Create the Dataset instance
-#     train_dataset = AudioLanguageDataset(
-#         annotations_path=config['train_annotations_path'],
-#         audio_dir=config['train_audio_dir'],
-#         tokenizer=tokenizer,
-#         sample_rate=config['sample_rate']
-#     )
-
-#     # 2. Create the collate function
-#     collate_fn = partial(audio_language_collate_fn, pad_id=pad_id)
-
-#     # 3. Create the DataLoader
-#     # This replaces your AudioDataLoader class and stream_batches method.
-#     train_loader = DataLoader(
-#         train_dataset,
-#         batch_size=config['BATCH_SIZE'],
-#         shuffle=True,
-#         num_workers=4,
-#         collate_fn=collate_fn
-#     )
-
-#     # 4. Use it in your training loop
-#     for batch in train_loader:
-#         audio = batch['audio_input'].to(device)
-#         texts = batch['text_target'].to(device)
-#         # ... proceed with training ...
+    # Assembling Final Batch Dictionary
+    return {
+        "input_ids": input_ids,
+        "target_ids": target_ids,
+        "input_ids_padding_mask": decoder_padding_mask,
+        "audio_input": padded_audio,
+        "audio_input_padding_masks": audio_padding_mask,
+    }

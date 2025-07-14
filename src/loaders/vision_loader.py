@@ -66,51 +66,71 @@ class VisionLanguageDataset(Dataset):
         return {"image_input": image_tensor, "text_input_ids": torch.tensor(text_ids, dtype=torch.long)}
 
 
-def vision_language_collate_fn(batch: List[Optional[Dict]], pad_id: int, bos_id: int, config: dict) -> Dict:
+def vision_language_collate_fn(batch: List[Optional[Dict]], pad_id: int, bos_id: int, eos_id: int, config: dict) -> Dict:
     """
-    Complete collate function for vision-language data, prepared for a multi-memory transformer.
-    It places the vision context in the first memory slot and pads the rest.
+    Prepares and collates a batch of vision-language data for a transformer model.
+
+    This function takes a list of samples (each a dictionary containing an image and tokenized text),
+    and formats them into tensors ready for model training. It handles:
+    - Stacking image tensors.
+    - Creating encoder padding masks for vision features.
+    - Preparing decoder `input_ids` and `target_ids` for teacher-forcing.
+    - Padding all sequences to the same length within the batch.
+    - Setting up placeholders for a multi-memory architecture.
+
+    Args:
+        batch: A list of dictionary samples from the Dataset. Each dict should have
+               'image_input' (Tensor) and 'text_input_ids' (Tensor).
+        pad_id: The token ID for padding.
+        bos_id: The token ID for "beginning of sentence".
+        eos_id: The token ID for "end of sentence".
+        config: A configuration dictionary containing model and data parameters.
+
+    Returns:
+        A dictionary of tensor ready for the model's forward pass.
     """
-    # Filter out any samples that failed to load
+    # Filtering out any samples that failed to load (e.g., due to a missing image file)
     batch = [item for item in batch if item is not None]
     if not batch:
         return {}
 
     batch_size = len(batch)
 
-    # Prepare Vision Input (The primary memory stream)
+    # Preparing Vision Inputs
     image_tensors = torch.stack([item['image_input'] for item in batch], dim=0)
 
-    # For a ViT, the sequence length is fixed. The mask is all True.
-    num_patches_plus_one = image_tensors.shape[1]  # ViT output has shape (B, num_patches+1, D)
-    vision_padding_mask = torch.ones(batch_size, num_patches_plus_one, dtype=torch.bool)
+    # Calculating the sequence length of the ViT output (patches + CLS token)
+    vision_config = config['vision_encoder']
+    patch_size = vision_config['patch_size']
+    image_size = vision_config['image_size']
+    num_patches = (image_size // patch_size) ** 2
+    vision_seq_len = num_patches + 1
 
-    # Create the list of memory streams and masks
-    memory_streams_ids = [image_tensors]
-    memory_padding_masks = [vision_padding_mask]
+    # Vision features are never padded, so their mask is all True.
+    vision_padding_mask = torch.ones(batch_size, vision_seq_len, dtype=torch.bool)
 
-    num_total_mem_streams = config['model']['num_memory_streams']
-    if num_total_mem_streams > 1:
-        # Create an empty placeholder tensor for the other streams.
-        # It needs batch_size and d_model, but seq_len can be 0.
-        # The model's cross-attention should handle an empty sequence gracefully.
-        d_model = image_tensors.shape[-1]
-        empty_stream = torch.empty((batch_size, 0, d_model), dtype=image_tensors.dtype)
-        empty_mask = torch.zeros((batch_size, 0), dtype=torch.bool)
-
-        for _ in range(num_total_mem_streams - 1):
-            memory_streams_ids.append(empty_stream)
-            memory_padding_masks.append(empty_mask)
-
-    # Prepare Text Input/Target for the Decoder
+    # Prepare Text Inputs and Targets for Teacher Forcing
     text_sequences = [item['text_input_ids'] for item in batch]
+
     input_ids_list = [torch.cat([torch.tensor([bos_id]), seq]) for seq in text_sequences]
-    target_ids_list = [seq for seq in text_sequences]
+    target_ids_list = [torch.cat([seq, torch.tensor([eos_id])]) for seq in text_sequences]
 
     input_ids = torch.nn.utils.rnn.pad_sequence(input_ids_list, batch_first=True, padding_value=pad_id)
     target_ids = torch.nn.utils.rnn.pad_sequence(target_ids_list, batch_first=True, padding_value=pad_id)
+
+    # The loss function should ignore padded tokens in the targets.
+    # PyTorch's CrossEntropyLoss ignores targets with the value -100.
     target_ids[target_ids == pad_id] = -100
 
-    #  Create Final Dictionary
-    return {"input_ids": input_ids, "target_ids": target_ids, "padding_mask": (input_ids != pad_id),
-        "image_ids": image_tensors, "memory_padding_masks": memory_padding_masks}
+    # Creating the decoder's padding mask to ignore padded tokens in the input.
+    decoder_padding_mask = (input_ids != pad_id)
+
+    # Assemble Final Batch Dictionary
+    final_res = {
+        "input_ids": input_ids,
+        "target_ids": target_ids,
+        "input_padding_mask": decoder_padding_mask,
+        "image_input": image_tensors,
+        "image_input_padding_masks": vision_padding_mask,
+    }
+    return final_res
