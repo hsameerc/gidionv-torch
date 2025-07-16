@@ -123,7 +123,7 @@ def launch_log_plot(destination: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Gidion Plot.")
-    parser.add_argument('--path', type=str, default="research/models/gidionv_multi_memory/gidionv_multi_memory.csv",
+    parser.add_argument('--path', type=str, default="checkpoints/gidion_expert/gidion_expert.csv",
                         help="Path to a Log file to override defaults.")
     args = parser.parse_args()
     launch_log_plot(args.path)

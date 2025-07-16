@@ -117,7 +117,8 @@ class MemoryOfExpertsTransformer(nn.Module):
                                                                memory_padding_masks=final_padded_masks,
                                                                kv_cache=block_kv_cache)
             if gating_weights_output is not None:
-                all_gating_outputs.append(gating_weights_output)
+                # .detach() is important so we don't hold onto the computation graph
+                all_gating_outputs.append(gating_weights_output.detach())
             if next_kv_caches is not None:
                 next_kv_caches.append(updated_kv_cache)
 
