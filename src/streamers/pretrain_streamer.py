@@ -115,7 +115,8 @@ class PretrainDatasetStreamer(IterableDataset):
         processor = StreamingDatasetProcessor(
             tokenizer=self.tokenizer,
             seq_len=self.config['max_seq_len'],
-            overlap_len_tokens=self.config.get('OVERLAP_LEN_TOKENS', 64)
+            overlap_len_tokens=self.config.get('OVERLAP_LEN_TOKENS', 64),
+            num_memory_streams=self.config['model']['num_memory_streams']
         )
         raw_example_stream = processor.process_stream(interleaved_stream)
 
