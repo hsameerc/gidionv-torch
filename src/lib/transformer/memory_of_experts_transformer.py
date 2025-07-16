@@ -109,7 +109,7 @@ class MemoryOfExpertsTransformer(nn.Module):
 
         # Pass through Decoder Stack
         next_kv_caches = [] if kv_cache_list is not None else None
-        all_gating_outputs = []
+        all_gating_weights_outputs = []
         for i, block in enumerate(self.decoder_blocks):
             block_kv_cache = kv_cache_list[i] if kv_cache_list else None
             x, updated_kv_cache, gating_weights_output = block(x, target_padding_mask=target_padding_mask,
@@ -118,7 +118,7 @@ class MemoryOfExpertsTransformer(nn.Module):
                                                                kv_cache=block_kv_cache)
             if gating_weights_output is not None:
                 # .detach() is important so we don't hold onto the computation graph
-                all_gating_outputs.append(gating_weights_output.detach())
+                all_gating_weights_outputs.append(gating_weights_output.mean(dim=0).detach())
             if next_kv_caches is not None:
                 next_kv_caches.append(updated_kv_cache)
 
@@ -126,7 +126,7 @@ class MemoryOfExpertsTransformer(nn.Module):
         x = self.final_norm(x)
         logits = self.lm_head(x)
 
-        return logits, next_kv_caches, all_gating_outputs
+        return logits, next_kv_caches, all_gating_weights_outputs
 
     def _prepare_memory_batch(
             self,
