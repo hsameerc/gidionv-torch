@@ -5,8 +5,6 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from src.lib.transformer.multi_memory_transformer import MultiMemoryTransformer
-
 
 def get_learning_rate(step: int, config: Dict) -> float:
     """Implements linear warmup and cosine decay LR schedule."""
@@ -42,17 +40,60 @@ def calculate_validation_loss(model: nn.Module, val_loader: DataLoader, criterio
         # Move data to the correct device
         input_ids = batch['input_ids'].to(device)
         target_ids = batch['target_ids'].to(device)
-        # For train txt
-        # TODO:: Separate for finetune and txt train
-        memory_streams_ids = [s.to(device) for s in batch['memory_streams_ids']]
-        memory_padding_masks = [s.to(device) for s in batch['memory_padding_masks']]
+        # Unbind it along the `num_streams` dimension (dim=1).
+        # This creates a tuple of 3 tensors.
+        batched_memory_tensor = batch['memory_streams_ids'].to(device)
+        unbound_streams = torch.unbind(batched_memory_tensor, dim=1)
+        memory_streams_ids = list(unbound_streams)
+        # Forward Pass
+        logits, _, _ = model(input_ids=input_ids, memory_streams_ids=memory_streams_ids)
+
+        # Loss Calculation
+        loss = criterion(logits.view(-1, logits.size(-1)), target_ids.view(-1))
+
+        # Accumulate loss and token counts
+        num_active_tokens_in_batch = (target_ids.view(-1) != -100).sum().item()
+
+        if num_active_tokens_in_batch > 0:
+            total_loss_sum += loss.item() * num_active_tokens_in_batch
+            total_active_tokens += num_active_tokens_in_batch
+
+    model.train()
+
+    if total_active_tokens == 0:
+        print("Warning: No active tokens found in validation set. Returning 0 loss.")
+        return 0.0, float('inf')
+
+    # Calculate the final average loss and perplexity
+    average_loss = total_loss_sum / total_active_tokens
+    perplexity = math.exp(average_loss)
+
+    return average_loss, perplexity
+
+
+@torch.no_grad()
+def calculate_validation_loss_fine_tune(model: nn.Module, val_loader: DataLoader, criterion: nn.Module,
+                                        device: torch.device) -> Tuple[float, float]:
+    """
+    Calculates validation loss and perplexity on a validation set.
+    """
+    print("Calculating validation loss...")
+    model.eval()
+
+    total_loss_sum = 0.0
+    total_active_tokens = 0
+
+    for batch in val_loader:
+        # Move data to the correct device
+        input_ids = batch['input_ids'].to(device)
+        target_ids = batch['target_ids'].to(device)
         # For Fine Tune jsonl
-        # batched_memory_tensor = batch['memory_streams_ids'].to(device)
-        # unbound_streams = torch.unbind(batched_memory_tensor, dim=1)
-        # memory_streams_ids = list(unbound_streams)
-        # batched_mask_tensor = batch['memory_padding_masks'].to(device)
-        # unbound_masks = torch.unbind(batched_mask_tensor, dim=1)
-        # memory_padding_masks = list(unbound_masks)
+        batched_memory_tensor = batch['memory_streams_ids'].to(device)
+        unbound_streams = torch.unbind(batched_memory_tensor, dim=1)
+        memory_streams_ids = list(unbound_streams)
+        batched_mask_tensor = batch['memory_padding_masks'].to(device)
+        unbound_masks = torch.unbind(batched_mask_tensor, dim=1)
+        memory_padding_masks = list(unbound_masks)
 
         # Forward Pass
         logits, _ = model(input_ids=input_ids, memory_streams_ids=memory_streams_ids,

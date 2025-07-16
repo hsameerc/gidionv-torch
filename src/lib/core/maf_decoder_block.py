@@ -50,7 +50,14 @@ class MemoryAttentionFusionDecoderBlock(nn.Module):
     def forward(self, x: torch.Tensor, memory_streams: List[torch.Tensor],
                 target_padding_mask: Optional[torch.Tensor] = None,
                 memory_padding_masks: Optional[List[torch.Tensor]] = None, kv_cache: Optional[Dict[str, Any]] = None) -> \
-            Tuple[torch.Tensor, Dict[str, Any]]:
+            Tuple[torch.Tensor, Dict[str, Any], Optional[torch.Tensor]]:
+        """
+           Returns:
+               A tuple containing:
+               - final_output (torch.Tensor): The output tensor of the block.
+               - new_kv_cache (Dict[str, Any]): The updated self-attention KV cache.
+               - fusion_softmax_weights (Optional[torch.Tensor]): The calculated fusion weights, or None.
+           """
         kv_cache = kv_cache or {}
 
         # Masked Self-Attention (Pre-LN)
@@ -84,6 +91,7 @@ class MemoryAttentionFusionDecoderBlock(nn.Module):
             cross_attention_outputs.append(cross_output)
 
         # Fusion and Gating
+        fusion_softmax_weights = None
         if cross_attention_outputs:
             stacked_cross_outputs = torch.stack(cross_attention_outputs, dim=0)
             fusion_softmax_weights = F.softmax(self.fusion_weights, dim=0)
@@ -105,7 +113,7 @@ class MemoryAttentionFusionDecoderBlock(nn.Module):
         final_output = residual2 + self.dropout_ffn(ff_output)
 
         new_kv_cache = {'self_attn': self_attn_kv_cache}
-        return final_output, new_kv_cache
+        return final_output, new_kv_cache, fusion_softmax_weights
 
     @torch.no_grad()
     def project_component_weights_low_rank(self, rank_or_fraction: Union[int, float]):

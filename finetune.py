@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from src.config.config import get_config
 from src.data.saver_loader import save_checkpoint, load_checkpoint
 from src.streamers.finetune_external_streamer import FinetuneDatasetStream, FinetuneValidationDataset
-from src.utils.trainerhelper import get_learning_rate, calculate_validation_loss
+from src.utils.trainerhelper import get_learning_rate, calculate_validation_loss_fine_tune
 
 
 def train(config: Dict[str, Any]):
@@ -52,7 +52,7 @@ def train(config: Dict[str, Any]):
     special_tokens = {"USER": "<USER>", "ASSISTANT": "<ASSISTANT>", "INST": "<INST>", "END_INST": "</INST>"}
     # Validation Data loader
     val_dataset = FinetuneValidationDataset(tokenizer=tokenizer, config=config,
-                                  special_tokens=special_tokens)
+                                            special_tokens=special_tokens)
     val_data_loader = DataLoader(val_dataset, batch_size=config['BATCH_SIZE'], num_workers=config.get('NUM_WORKERS', 1),
                                  persistent_workers=True)
     for epoch in range(start_epoch, config['EPOCHS']):
@@ -60,7 +60,7 @@ def train(config: Dict[str, Any]):
 
         # Training Data loader
         dataset = FinetuneDatasetStream(tokenizer=tokenizer, config=config,
-                                  special_tokens=special_tokens)
+                                        special_tokens=special_tokens)
         data_loader = DataLoader(dataset, batch_size=config['BATCH_SIZE'], num_workers=config.get('NUM_WORKERS', 1),
                                  persistent_workers=True)
         model.train()
@@ -123,8 +123,8 @@ def train(config: Dict[str, Any]):
                     log_writer.writerow(log_data)
                     log_file.flush()
                 if total_steps % config['EVAL_EVERY_N_STEPS'] == 0:
-                    val_loss, val_ppl = calculate_validation_loss(model=model, val_loader=val_data_loader,
-                                                                  criterion=criterion, device=device)
+                    val_loss, val_ppl = calculate_validation_loss_fine_tune(model=model, val_loader=val_data_loader,
+                                                                            criterion=criterion, device=device)
                     print(f"VALIDATION @ Step {total_steps: >6} | Val Loss: {val_loss:.4f} | Perplexity: {val_ppl:.2f}")
                     log_data = [total_steps, epoch + 1, "N/A", f"{val_loss:.4f}", f"{val_ppl:.2f}", f"{lr:.2e}", "N/A"]
                     log_writer.writerow(log_data)

@@ -26,7 +26,7 @@ def train(config: Dict[str, Any]):
     print(f"Using device: {device}")
 
     # CrossEntropyLoss
-    criterion = nn.CrossEntropyLoss(ignore_index=-100)
+    criterion = nn.CrossEntropyLoss(ignore_index=-100, label_smoothing=config['LABEL_SMOOTHING'])
 
     model_path = os.path.join(config['MODEL_DIR'], f"{config['MODEL_NAME']}.pth")
 
@@ -136,7 +136,7 @@ def train(config: Dict[str, Any]):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run the PyTorch Multi Memory Transformer.")
-    parser.add_argument('--config', default='configs/gidionv_multi_memory_experts.json', type=str)
+    parser.add_argument('--config', default='configs/gidionv_multi_memory_regularization.json', type=str)
     args = parser.parse_args()
 
     cfg = get_config()

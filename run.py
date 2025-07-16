@@ -43,7 +43,7 @@ def generate_with_memory(model, tokenizer, memory_streams: List[List[List[int]]]
 
     prompt_ids = torch.tensor([tokenizer.encode(query)], dtype=torch.long, device=device)
 
-    generated, logits = model.generate(prompt_ids, memory_streams, max_new_tokens=50, temperature=0.1, top_p=1.0,
+    generated, logits = model.generate(prompt_ids, memory_streams, max_new_tokens=100, temperature=0.1, top_p=0.95,
                                        return_logits=True)
 
     # Convert back to list for decoding
@@ -53,7 +53,7 @@ def generate_with_memory(model, tokenizer, memory_streams: List[List[List[int]]]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Gidion Augmented Transformer.")
-    parser.add_argument('--config', default='configs/gidionv_multi_memory_finetune.json', type=str,
+    parser.add_argument('--config', default='configs/gidionv_multi_memory_regularization.json', type=str,
                         help="Path to a JSON config file to override defaults.")
     args = parser.parse_args()
 
