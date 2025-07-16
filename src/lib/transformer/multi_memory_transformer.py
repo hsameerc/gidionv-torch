@@ -10,7 +10,7 @@ from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
 from src.lib.core.maf_decoder_block import MemoryAttentionFusionDecoderBlock
 from src.lib.core.memory_encoder import MemoryEncoder
 from src.lib.core.positional_encoding import PositionalEncoding
-from src.lib.transformer.common import top_k_filtering
+from src.lib.transformer.common import top_k_filtering, top_p_filtering
 
 
 class MultiMemoryTransformer(nn.Module):
@@ -220,15 +220,16 @@ class MultiMemoryTransformer(nn.Module):
         return memory_contexts, memory_padding_masks
 
     @torch.no_grad()
-    def generate_autoregressively(self,
-                                  prompt_ids: torch.Tensor,
-                                  memory_streams_ids: List[List[int]],
-                                  max_new_tokens: int = 128,
-                                  temperature: float = 0.7,
-                                  top_k: int = 50,
-                                  repetition_penalty: float = 1.1,
-                                  eos_token_id: Optional[int] = None,
-                                  return_logits: bool = False) -> tuple[Tensor, Tensor] | Tensor:
+    def generate(self,
+                 prompt_ids: torch.Tensor,
+                 memory_streams_ids: List[List[int]],
+                 max_new_tokens: int = 128,
+                 temperature: float = 0.7,
+                 top_k: int = 50,
+                 top_p: int = 1.0,
+                 repetition_penalty: float = 1.1,
+                 eos_token_id: Optional[int] = None,
+                 return_logits: bool = False) -> tuple[Tensor, Tensor] | Tensor:
         """
         Generates text autoregressively.
         Assumes memory contexts are pre-computed and pre-padded.
@@ -236,135 +237,76 @@ class MultiMemoryTransformer(nn.Module):
         self.eval()
         device = prompt_ids.device
         batched_ids, batched_masks = self._prepare_memory_batch(memory_streams_ids, device)
-        pre_computed_contexts, pre_computed_masks = self._encode_memory_from_ids(batched_ids)
         generated_ids = prompt_ids
         kv_caches = None
         logits = None
+
+        batch_size = prompt_ids.shape[0]
+        is_finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
+
         for _ in range(max_new_tokens):
             # Preparing inputs for the forward pass
             input_ids_step = generated_ids[:, -1:] if kv_caches is not None else generated_ids
-            logits, kv_caches = self.forward(
+            logits, kv_caches, _ = self.forward(
                 input_ids=input_ids_step,
-                memory_contexts=pre_computed_contexts,
-                memory_padding_masks=pre_computed_masks,
+                memory_streams_ids=batched_ids,
                 kv_cache_list=kv_caches
             )
             # Getting logits for the last token only
             logits = logits[:, -1, :]
 
             # Applying repetition penalty
-            if repetition_penalty != 1.0 and generated_ids.shape[1] > 0:
-                # Create a tensor of unique tokens in each sequence of the batch
-                for i in range(generated_ids.shape[0]):
-                    unique_tokens = torch.unique(generated_ids[i])
-                    logits[i, unique_tokens] /= repetition_penalty
+            if repetition_penalty != 1.0:
+                # Creating a view of the logits for sequences that are not yet finished
+                unfinished_logits = logits[~is_finished]
+                unfinished_generated_ids = generated_ids[~is_finished]
 
-            # Apply temperature
+                if unfinished_generated_ids.shape[1] > 0:
+                    # Applying penalty only on this subset
+                    for i in range(unfinished_logits.shape[0]):
+                        unique_tokens = torch.unique(unfinished_generated_ids[i])
+                        unfinished_logits[i, unique_tokens] = torch.where(
+                            unfinished_logits[i, unique_tokens] > 0,
+                            unfinished_logits[i, unique_tokens] / repetition_penalty,
+                            unfinished_logits[i, unique_tokens] * repetition_penalty
+                        )
+                    # Placing the modified logits back into the main logits tensor
+                    logits[~is_finished] = unfinished_logits
+
+            # Applying temperature
             if temperature > 0:
                 logits = logits / temperature
 
-            # Apply top-k filtering
+            # Applying top-k filtering
             if top_k > 0:
                 logits = top_k_filtering(logits, top_k)
 
-            # Sample the next token
-            probs = F.softmax(logits, dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1)
+            # Applying Top-P (nucleus) filtering SECOND
+            if top_p < 1.0:
+                logits = top_p_filtering(logits, top_p)
 
-            # Append the new token
-            generated_ids = torch.cat((generated_ids, next_token), dim=1)
-
-            # Check for end-of-sequence token
-            if eos_token_id is not None and (next_token == eos_token_id).all():
-                break
-
-        self.train()
-        if return_logits:
-            return generated_ids, logits
-        else:
-            return generated_ids
-
-    @torch.no_grad()
-    def generate(self, prompt_ids: torch.Tensor, memory_streams_ids: List[List[List[int]]], max_new_tokens: int,
-                 temperature: float = 0.7, top_p: float = 0.9, top_k: int = 0, repetition_penalty: float = 1.5,
-                 eos_token_id: Optional[int] = None, return_logits: bool = False) -> tuple[Tensor, Tensor] | Tensor:
-        """
-        Generates text sequences autoregressively using PyTorch.
-        This method is wrapped in `torch.no_grad()` for performance.
-        """
-        self.eval()
-        device = prompt_ids.device
-        logits = None
-        # One-Time Memory Encoding
-        memory_contexts = []
-        for stream_batch_ids_list in memory_streams_ids:
-            max_len = max(len(ids) for ids in stream_batch_ids_list)
-            padded_ids = torch.full((len(stream_batch_ids_list), max_len), self.pad_token_id, dtype=torch.long,
-                                    device=device)
-            for i, ids in enumerate(stream_batch_ids_list):
-                padded_ids[i, :len(ids)] = torch.tensor(ids, dtype=torch.long, device=device)
-
-            # Re-use the forward pass logic for encoding
-            mem_emb = self.token_embedding(padded_ids) * (self.d_model ** 0.5)
-            mem_pos_emb = self.positional_encoding(mem_emb)
-            mem_ctx = self.memory_encoder(mem_pos_emb, padding_mask=(padded_ids != self.pad_token_id))
-            memory_contexts.append(mem_ctx)
-
-        # Autoregressive Generation Loop
-        generated_ids = prompt_ids
-        batch_size = prompt_ids.shape[0]
-        is_finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
-        kv_caches = None
-
-        for _ in range(max_new_tokens):
-            # Passing only the last token for generation after the first step
-            input_ids_step = generated_ids[:, -1:] if kv_caches else generated_ids
-
-            logits, kv_caches = self.forward(input_ids=input_ids_step, memory_contexts=memory_contexts,
-                                             kv_cache_list=kv_caches)
-            # Getting the logits for the very last token
-            logits = logits[:, -1, :]
-
-            # Applying repetition penalty
-            if repetition_penalty != 1.0 and _ > 0:
-                scores = torch.gather(logits, 1, generated_ids)
-                scores = torch.where(scores > 0, scores / repetition_penalty, scores * repetition_penalty)
-                logits.scatter_(1, generated_ids, scores)
-
-            # Applying temperature and top-p sampling
-            if temperature > 0:
-                logits = logits / temperature
-                if top_k > 0:
-                    top_k_logits, top_k_indices = torch.topk(logits, top_k)
-                    min_inf_mask = torch.full_like(logits, -float('Inf'))
-                    logits = min_inf_mask.scatter_(1, top_k_indices, top_k_logits)
-                if 0 < top_p < 1.0:
-                    # Top-p filtering
-                    sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-                    cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
-                    sorted_indices_to_remove = cumulative_probs > top_p
-                    sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-                    sorted_indices_to_remove[..., 0] = 0
-                    indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-                    logits[indices_to_remove] = -float('Inf')
-
+            # Sampling the next token
+            if temperature == 0:
+                # Greedy decoding: simply pick the token with the highest score
+                next_token = torch.argmax(logits, dim=-1).unsqueeze(-1)
+            else:
+                # Random sampling: calculate probabilities and sample
+                # We apply softmax to the filtered logits to get a valid probability distribution.
                 probs = F.softmax(logits, dim=-1)
                 next_token = torch.multinomial(probs, num_samples=1)
 
-            else:  # Greedy
-                next_token = torch.argmax(logits, dim=-1).unsqueeze(-1)
-
-            if eos_token_id is not None:
-                is_finished = is_finished | (next_token == eos_token_id)
-
-            next_token = next_token.masked_fill(is_finished, self.pad_token_id)
+            # Appending the new token
             generated_ids = torch.cat((generated_ids, next_token), dim=1)
 
-            # Check for EOS token
+            # Checking for end-of-sequence token
+            if eos_token_id is not None:
+                is_finished = is_finished | (next_token == eos_token_id).squeeze()
+
             if is_finished.all():
                 break
 
         self.train()
+
         if return_logits:
             return generated_ids, logits
         else:

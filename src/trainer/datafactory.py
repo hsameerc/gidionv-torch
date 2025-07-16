@@ -3,7 +3,7 @@ from typing import Dict, Any
 from torch.utils.data import Dataset
 
 from src.streamers.datasets import StreamLocalPretrainDataset, FinetuneLocalDataset
-from src.streamers.finetune_external_streamer import FinetuneValidationDataset, FinetuneDatasetStream
+from src.streamers.finetune_streamer import FinetuneDatasetStream, FinetuneValidationDataset
 from src.streamers.pretrain_streamer import PretrainDatasetStreamer, PretrainValidationDataset
 
 

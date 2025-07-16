@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from src.config.config import get_config
 from src.data.saver_loader import load_checkpoint
-from src.utils.prepare import format_prompt
+from src.loaders.finetune_loader import format_prompt
 
 
 def kl_divergence_torch(p_logits: torch.Tensor, q_logits: torch.Tensor) -> torch.Tensor:
@@ -51,9 +51,10 @@ class V4SanityChecker:
 
         self.query = "What did the new survey reveal about the America?"
 
-        self.context_streams = ["The American Community Survey (ACS) is an annual demographics survey program conducted by the United States Census Bureau. It regularly gathers information previously contained only in the long form of the decennial census, including ancestry, US citizenship status, educational attainment, income, language proficiency, migration, disability, employment, and housing characteristics. No respondents personal information is released, and only used statistically in these data which are used by many public-sector, private-sector, and not-for-profit stakeholders to allocate funding, track shifting demographics, plan for emergencies, and learn about local communities.",
-                                "You have to reflect yourself, verify, correct and answer.",
-                                "NewYork is the capital of United States of America."]
+        self.context_streams = [
+            "The American Community Survey (ACS) is an annual demographics survey program conducted by the United States Census Bureau. It regularly gathers information previously contained only in the long form of the decennial census, including ancestry, US citizenship status, educational attainment, income, language proficiency, migration, disability, employment, and housing characteristics. No respondents personal information is released, and only used statistically in these data which are used by many public-sector, private-sector, and not-for-profit stakeholders to allocate funding, track shifting demographics, plan for emergencies, and learn about local communities.",
+            "You have to reflect yourself, verify, correct and answer.",
+            "NewYork is the capital of United States of America."]
 
     def encode_memory_streams(self) -> List[List[int]]:
         """
@@ -91,14 +92,14 @@ class V4SanityChecker:
 
         # Calling the Model's Generate Method
         # The `generate` method now handles all the complex internal processing.
-        generated_ids_tensor, logits_returned = self.model.generate_autoregressively(
+        generated_ids_tensor, logits_returned = self.model.generate(
             prompt_ids=prompt_ids,
             memory_streams_ids=memory_streams_ids_list,
             max_new_tokens=100,
             temperature=0.7,
             top_k=50,
             eos_token_id=self.tokenizer.eos_token_id,
-            return_logits = True
+            return_logits=True
         )
 
         # Decoding the Output
@@ -124,7 +125,7 @@ class V4SanityChecker:
                                                                  "NO MEMORY")
         # A) No Memory
         output_no_mem_a, logits_no_mem_a = self.generate_with_memory([zero_stream, zero_stream, zero_stream],
-                                                                 "NO MEMORY")
+                                                                     "NO MEMORY")
 
         # B) Memory Stream 1 Only
         output_mem1, logits_mem1 = self.generate_with_memory(
