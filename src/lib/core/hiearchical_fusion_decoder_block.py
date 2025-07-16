@@ -42,9 +42,10 @@ class HierarchicalFusionDecoderBlock(nn.Module):
     def forward(self, x: torch.Tensor, memory_streams: List[torch.Tensor],
                 target_padding_mask: Optional[torch.Tensor] = None,
                 memory_padding_masks: Optional[List[torch.Tensor]] = None,
-                kv_cache: Optional[Dict[str, Any]] = None) -> Tuple[torch.Tensor, Dict[str, Any]]:
+                kv_cache: Optional[Dict[str, Any]] = None) -> Tuple[
+        torch.Tensor, Dict[str, Any], Optional[torch.Tensor]]:
         kv_cache = kv_cache if kv_cache is not None else {}
-
+        gating_weights_output = None
         # Masked Self-Attention
         ln1_out = self.ln1(x)
         self_attn_output, _, self_attn_kv_cache = self.self_attn(query=ln1_out, key=ln1_out, value=ln1_out,
@@ -70,6 +71,9 @@ class HierarchicalFusionDecoderBlock(nn.Module):
             # Query: (B, 1, D), Key/Value: (B, num_experts, D)
             _, gating_weights, _ = self.gating_attention(query=gating_query, key=expert_summaries,
                                                          value=expert_summaries)  # gating_weights shape: (B, 1, 1, num_experts)
+
+            gating_weights_output = gating_weights
+            gating_weights_output = gating_weights_output.squeeze((1, 2))
 
             # Now we use the scores to create a weighted sum of the expert streams
             # gating_weights needs to be broadcastable to all_experts_tensor
@@ -101,4 +105,4 @@ class HierarchicalFusionDecoderBlock(nn.Module):
         final_output = residual2 + self.dropout3(ff_output)
 
         new_kv_cache = {'self_attn': self_attn_kv_cache}
-        return final_output, new_kv_cache
+        return final_output, new_kv_cache, gating_weights_output

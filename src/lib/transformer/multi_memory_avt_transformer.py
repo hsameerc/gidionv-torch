@@ -7,6 +7,7 @@ import torch.nn as nn
 from src.lib.core.encoders.audio_encoder import AudioEncoder
 from src.lib.core.encoders.vision_encoder import VisionEncoder
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
+from src.lib.core.hiearchical_fusion_decoder_block import HierarchicalFusionDecoderBlock
 from src.lib.core.maf_avt_decoder_block import MemoryAttentionFusionDecoderBlock
 from src.lib.core.memory_encoder import MemoryEncoder
 from src.lib.core.positional_encoding import PositionalEncoding
@@ -55,10 +56,11 @@ class MultiModalMemoryTransformer(nn.Module):
 
         #  Fusion Decoder Stack
         decoder_config = config['decoder']
-        self.decoder_blocks = nn.ModuleList([MemoryAttentionFusionDecoderBlock(  # Or HierarchicalFusionDecoderBlock
+        self.decoder_blocks = nn.ModuleList([HierarchicalFusionDecoderBlock(  # Or HierarchicalFusionDecoderBlock
             d_model=self.d_model, num_heads=decoder_config['num_heads'],
             ff_hidden_config=decoder_config['ff_hidden_config'],
-            num_memory_streams=config['model']['num_memory_streams'], dropout_rate=config.get('dropout_rate', 0.1),
+            # num_memory_streams=config['model']['num_memory_streams'],
+            dropout_rate=config.get('dropout_rate', 0.1),
             dtype=dtype) for _ in range(decoder_config['num_layers'])])
 
         # Final Output Layers
