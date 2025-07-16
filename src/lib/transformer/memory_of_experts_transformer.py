@@ -235,7 +235,7 @@ class MemoryOfExpertsTransformer(nn.Module):
 
         batch_size = prompt_ids.shape[0]
         is_finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
-
+        collected_logits = []
         for _ in range(max_new_tokens):
             # Preparing inputs for the forward pass
             input_ids_step = generated_ids[:, -1:] if kv_caches is not None else generated_ids
@@ -246,7 +246,8 @@ class MemoryOfExpertsTransformer(nn.Module):
             )
             # Getting logits for the last token only
             logits = logits[:, -1, :]
-
+            if return_logits:
+                collected_logits.append(logits)
             # Applying repetition penalty
             if repetition_penalty != 1.0:
                 # Creating a view of the logits for sequences that are not yet finished
@@ -300,6 +301,7 @@ class MemoryOfExpertsTransformer(nn.Module):
         self.train()
 
         if return_logits:
-            return generated_ids, logits
+            final_logits = torch.stack(collected_logits, dim=1)
+            return generated_ids, final_logits
         else:
             return generated_ids
