@@ -1,6 +1,10 @@
-from typing import Dict, List, Any
+import atexit
+import json
+from pathlib import Path
+from typing import List, Dict, Any
 
 import torch
+from torch.utils.data import Dataset
 
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
 
@@ -46,56 +50,86 @@ def format_prompt(instruction: str, context: str, special_tokens: dict) -> str:
     return f"{user_token}{inst_token} {prompt_instruction} {end_inst_token}{assistant_token}"
 
 
-def prepare_single_pretrain_item(item_data: Dict[str, List[int]], tokenizer, config) -> Dict[str, torch.Tensor]:
+class IndexedJsonlDataset(Dataset):
     """
-    Prepares a SINGLE pre-training item, returning 1D Tensors.
-    The DataLoader will be responsible for batching.
+    A high-performance, memory-efficient PyTorch Dataset for very large .jsonl files.
+
+    This class creates an index of byte offsets for each line in the file, allowing for
+    fast, random access to any data point. It is designed to be used with a
+    PyTorch `DataLoader` and multiple workers, where each worker will keep its own
+    file handle open to avoid repeated open/close overhead.
     """
-    seq_len = config['max_seq_len']
-    pad_id = tokenizer.pad_token_id
 
-    # Logic for a single item
-    source_ids = item_data['source_ids']
-    context_ids = item_data['context_ids']
+    def __init__(self, filepath: str):
+        self.filepath = Path(filepath)
+        if not self.filepath.exists():
+            raise FileNotFoundError(f"File not found: {self.filepath}")
 
-    # Pad the single sequence to create a 1D tensor of shape (seq_len)
-    memory_stream_1 = torch.full((seq_len,), pad_id, dtype=torch.long)
-    valid_len_ctx = min(len(context_ids), seq_len)
-    memory_stream_1[:valid_len_ctx] = torch.tensor(context_ids[:valid_len_ctx], dtype=torch.long)
+        self._line_offsets: List[int] = []
 
-    num_mem_streams = config['model']['num_memory_streams']
-    memory_streams_ids = [memory_stream_1]
-    if num_mem_streams > 1:
-        zero_stream = torch.full_like(memory_stream_1, pad_id)
-        memory_streams_ids.extend([zero_stream] * (num_mem_streams - 1))
+        # File handle, one per worker process
+        # This will be initialized lazily in __getitem__ to be compatible
+        # with PyTorch's multiprocessing DataLoader.
+        self._file_handle = None
 
-    # Process source_ids for a single item
-    if len(source_ids) > 1:
-        input_ids_list = source_ids[:-1]
-        target_ids_list = source_ids[1:]
-    else:
-        input_ids_list = []
-        target_ids_list = []
+        print(f"Indexing large JSONL file: {self.filepath}...")
+        self._build_index()
+        print(f"Indexing complete. Found {len(self)} lines.")
 
-    # Pad to create 1D tensors of shape (seq_len)
-    input_ids = torch.full((seq_len,), pad_id, dtype=torch.long)
-    valid_len_in = min(len(input_ids_list), seq_len)
-    input_ids[:valid_len_in] = torch.tensor(input_ids_list[:valid_len_in], dtype=torch.long)
+        # Ensure file handles are closed when the main Python process exits
+        atexit.register(self.close)
 
-    target_ids = torch.full((seq_len,), pad_id, dtype=torch.long)
-    valid_len_tgt = min(len(target_ids_list), seq_len)
-    target_ids[:valid_len_tgt] = torch.tensor(target_ids_list[:valid_len_tgt], dtype=torch.long)
+    def _build_index(self):
+        """
+        Scans the file once to build a byte offset index for each line.
+        This is a more efficient implementation.
+        """
+        with self.filepath.open('rb') as f:
+            self._line_offsets.append(0)
+            while True:
+                line = f.readline()
+                if not line:
+                    break
+                self._line_offsets.append(f.tell())
 
-    target_ids[target_ids == pad_id] = -100
+        self._line_offsets.pop()
 
-    padding_mask = (input_ids != pad_id).to(dtype=torch.bool)
-    memory_padding_masks = [(stream != pad_id).to(dtype=torch.bool) for stream in memory_streams_ids]
-    return {"input_ids": input_ids, "memory_streams_ids": memory_streams_ids, "target_ids": target_ids,
-            "padding_mask": padding_mask, "memory_padding_masks": memory_padding_masks}
+    def __len__(self) -> int:
+        """Returns the total number of lines (samples) in the file."""
+        return len(self._line_offsets)
+
+    def __getitem__(self, index: int) -> Dict:
+        """
+        Retrieves and parses a single JSON object by its line index.
+        It lazily opens a file handle for each worker process.
+        """
+        if not 0 <= index < len(self):
+            raise IndexError(f"Index {index} is out of range for file with {len(self)} lines.")
+
+        # Each worker process gets its own file handle, which stays open.
+        if self._file_handle is None:
+            self._file_handle = self.filepath.open('rb')
+
+        # Seek to the pre-computed byte offset and read the line
+        self._file_handle.seek(self._line_offsets[index])
+        line_bytes = self._file_handle.readline()
+
+        # Decode and parse the JSON line
+        return json.loads(line_bytes.decode('utf-8'))
+
+    def close(self):
+        """Closes the file handle."""
+        if self._file_handle is not None:
+            self._file_handle.close()
+            self._file_handle = None
+
+    def __del__(self):
+        """Destructor to ensure file handle is closed when the object is destroyed."""
+        self.close()
 
 
 def prepare_single_instruction_item(raw_item: Dict, tokenizer: 'HFTokenizerWrapper', config: dict,
-                                          special_tokens: dict) -> Dict[str, Any]:
+                                    special_tokens: dict) -> Dict[str, Any]:
     """
     Prepares a SINGLE fine-tuning item, returning
     a dictionary with all required tensors and masks.
@@ -114,7 +148,7 @@ def prepare_single_instruction_item(raw_item: Dict, tokenizer: 'HFTokenizerWrapp
     memory_streams_ids_list = [padded_context]
     num_total_mem_streams = config['model']['num_memory_streams']
     if num_total_mem_streams > 1:
-        empty_stream  = torch.full_like(padded_context, pad_id,  dtype=torch.long)
+        empty_stream = torch.full_like(padded_context, pad_id, dtype=torch.long)
         memory_streams_ids_list.extend([empty_stream] * (num_total_mem_streams - 1))
 
     # Stacking the list of 1D tensors into a single 2D tensor

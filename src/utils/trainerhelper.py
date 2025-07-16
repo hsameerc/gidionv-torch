@@ -5,8 +5,6 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from src.lib.transformer.multi_memory_transformer import MultiMemoryTransformer
-
 
 def get_learning_rate(step: int, config: Dict) -> float:
     """Implements linear warmup and cosine decay LR schedule."""
@@ -42,21 +40,13 @@ def calculate_validation_loss(model: nn.Module, val_loader: DataLoader, criterio
         # Move data to the correct device
         input_ids = batch['input_ids'].to(device)
         target_ids = batch['target_ids'].to(device)
-        # For train txt
-        # TODO:: Separate for finetune and txt train
-        memory_streams_ids = [s.to(device) for s in batch['memory_streams_ids']]
-        memory_padding_masks = [s.to(device) for s in batch['memory_padding_masks']]
-        # For Fine Tune jsonl
-        # batched_memory_tensor = batch['memory_streams_ids'].to(device)
-        # unbound_streams = torch.unbind(batched_memory_tensor, dim=1)
-        # memory_streams_ids = list(unbound_streams)
-        # batched_mask_tensor = batch['memory_padding_masks'].to(device)
-        # unbound_masks = torch.unbind(batched_mask_tensor, dim=1)
-        # memory_padding_masks = list(unbound_masks)
-
+        # Unbind it along the `num_streams` dimension (dim=1).
+        # This creates a tuple of 3 tensors.
+        batched_memory_tensor = batch['memory_streams_ids'].to(device)
+        unbound_streams = torch.unbind(batched_memory_tensor, dim=1)
+        memory_streams_ids = list(unbound_streams)
         # Forward Pass
-        logits, _ = model(input_ids=input_ids, memory_streams_ids=memory_streams_ids,
-                          memory_padding_masks=memory_padding_masks)
+        logits, _, _ = model(input_ids=input_ids, memory_streams_ids=memory_streams_ids)
 
         # Loss Calculation
         loss = criterion(logits.view(-1, logits.size(-1)), target_ids.view(-1))

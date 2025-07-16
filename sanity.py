@@ -1,12 +1,13 @@
 import argparse
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
 
 from src.config.config import get_config
 from src.data.saver_loader import load_checkpoint
+from src.loaders.finetune_loader import format_prompt
 
 
 def kl_divergence_torch(p_logits: torch.Tensor, q_logits: torch.Tensor) -> torch.Tensor:
@@ -45,28 +46,70 @@ class V4SanityChecker:
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.model, _, self.tokenizer, _ = load_checkpoint(config, self.device)
+        self.model, _, self.tokenizer, _ = load_checkpoint(config, self.device, use_best=False)
         self.model.eval()  # Set to evaluation mode
 
-        self.query = "[INST] Please translate And he disappointed me. into Nepali [/INST] "
-        self.context_streams = [" अनि उहाँले मलाई निराश पार्नुभयो। ", "", ""]
+        self.query = "What did the new survey reveal about the America?"
 
-    def encode_memory_streams(self) -> List[List[List[int]]]:
+        self.context_streams = [
+            "The American Community Survey (ACS) is an annual demographics survey program conducted by the United States Census Bureau. It regularly gathers information previously contained only in the long form of the decennial census, including ancestry, US citizenship status, educational attainment, income, language proficiency, migration, disability, employment, and housing characteristics. No respondents personal information is released, and only used statistically in these data which are used by many public-sector, private-sector, and not-for-profit stakeholders to allocate funding, track shifting demographics, plan for emergencies, and learn about local communities.",
+            "You have to reflect yourself, verify, correct and answer.",
+            "NewYork is the capital of United States of America."]
+
+    def encode_memory_streams(self) -> List[List[int]]:
+        """
+        [CORRECTED] Encodes memory streams into a list of token ID lists.
+        """
         print("\n Encoding Memory Streams")
-        # Tokenization logic is the same
-        return [[self.tokenizer.encode(doc)] for doc in self.context_streams]
+        # The output is now a simple list of lists, e.g., [[1,2,3], [4,5,6]]
+        return [self.tokenizer.encode(doc) for doc in self.context_streams]
 
-    @torch.no_grad()  # Disable gradients for inference
-    def generate_with_memory(self, memory_streams: List[List[List[int]]], label: str):
-        print(f"\n Generating with {label}")
-        prompt_ids = torch.tensor([self.tokenizer.encode(self.query)], dtype=torch.long, device=self.device)
+    @torch.no_grad()
+    def generate_with_memory(self,
+                             memory_streams_ids_list: List[List[int]],
+                             label: str) -> Tuple[str, Optional[torch.Tensor]]:
+        """
+        [CORRECTED] Generates a response using the model, preparing inputs correctly.
+        """
+        print(f"\n--- Generating with {label} ---")
 
-        generated, logits = self.model.generate(prompt_ids, memory_streams, max_new_tokens=50, temperature=0.1,
-                                                top_p=1.0, return_logits=True)
+        # Preparing the Prompt
+        special_tokens = {"USER": "<USER>", "ASSISTANT": "<ASSISTANT>"}
 
-        # [TORCH] Convert back to list for decoding
-        decoded = self.tokenizer.decode(generated[0].tolist())
-        return decoded, logits
+        # Creating a small "hint" from the context to include in the prompt
+        # This helps the model know what kind of information is available.
+        context_hint = ""
+        if memory_streams_ids_list and memory_streams_ids_list[0]:
+            # Getting the first few tokens of the first memory stream and decode them
+            hint_tokens = memory_streams_ids_list[0][:15]
+            context_hint = self.tokenizer.decode(hint_tokens) + "..."
+
+        # Formatting the final prompt string
+        final_prompt_string = format_prompt(self.query, context_hint, special_tokens)
+        print(f"Formatted Prompt:\n{final_prompt_string}")
+
+        prompt_ids = torch.tensor([self.tokenizer.encode(final_prompt_string)], dtype=torch.long, device=self.device)
+
+        # Calling the Model's Generate Method
+        # The `generate` method now handles all the complex internal processing.
+        generated_ids_tensor, logits_returned = self.model.generate(
+            prompt_ids=prompt_ids,
+            memory_streams_ids=memory_streams_ids_list,
+            max_new_tokens=100,
+            temperature=0.7,
+            top_k=50,
+            eos_token_id=self.tokenizer.eos_token_id,
+            return_logits=True
+        )
+
+        # Decoding the Output
+        # The generate method returns the full sequence (prompt + new tokens)
+        prompt_len = prompt_ids.shape[1]
+        newly_generated_ids = generated_ids_tensor[0, prompt_len:]
+
+        decoded_response = self.tokenizer.decode(newly_generated_ids.tolist(), skip_special_tokens=True).strip()
+
+        return decoded_response, logits_returned
 
     def run(self):
         print(f"\nQUERY: '{self.query}'")
@@ -75,26 +118,30 @@ class V4SanityChecker:
 
         encoded_streams = self.encode_memory_streams()
         # A "zero stream" in this context is just an empty document
-        zero_stream = [[]]
+        zero_stream = []
 
         # A) No Memory
-        output_no_mem, logits_no_mem = self.generate_with_memory([zero_stream, zero_stream, zero_stream, zero_stream],
+        output_no_mem, logits_no_mem = self.generate_with_memory([zero_stream, zero_stream, zero_stream],
                                                                  "NO MEMORY")
+        # A) No Memory
+        output_no_mem_a, logits_no_mem_a = self.generate_with_memory([zero_stream, zero_stream, zero_stream],
+                                                                     "NO MEMORY")
 
         # B) Memory Stream 1 Only
         output_mem1, logits_mem1 = self.generate_with_memory(
-            [encoded_streams[0], zero_stream, zero_stream, zero_stream], "Memory Stream 1 ONLY")
+            [encoded_streams[0], zero_stream, zero_stream], "Memory Stream 1 ONLY")
 
         # C) Stream 1 + 2 + Zero + Zero
         output_mem2, logits_mem2 = self.generate_with_memory(
-            [encoded_streams[0], encoded_streams[1], zero_stream, zero_stream], "Stream 1 + 2")
+            [encoded_streams[0], encoded_streams[1], zero_stream], "Stream 1 + 2")
 
         # D) Stream 1 + 2 + 3 + Zero
         output_all, logits_all = self.generate_with_memory(
-            [encoded_streams[0], encoded_streams[1], encoded_streams[2], zero_stream], "ALL Memory Streams")
+            [encoded_streams[0], encoded_streams[1], encoded_streams[2]], "ALL Memory Streams")
 
         # Quantitative KL Analysis
         print("\n" + "=" * 20 + " QUANTITATIVE RESULTS " + "=" * 20)
+        kl1 = analyze_kl_divergence_torch(logits_no_mem_a, logits_no_mem, "No Memory vs. No memory")
         kl1 = analyze_kl_divergence_torch(logits_mem1, logits_no_mem, "No Memory vs. Stream 1")
         kl2 = analyze_kl_divergence_torch(logits_mem2, logits_mem1, "Stream 1 vs. Stream 1+2")
         kl3 = analyze_kl_divergence_torch(logits_all, logits_mem2, "Stream 1+2 vs. All")
@@ -105,7 +152,6 @@ class V4SanityChecker:
             print("✅ Stream 1 had significant effect.")
         else:
             print("⚠️ Stream 1 had little effect.")
-        # ... (rest of the analysis logic is the same) ...
 
         print("\n" + "=" * 20 + " QUALITATIVE RESULT " + "=" * 20)
         print(f"\n[No Memory [0, 0, 0]]\n{output_no_mem}")
@@ -122,7 +168,7 @@ class V4SanityChecker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Gidion Augmented Transformer.")
-    parser.add_argument('--config', default='configs/test-config.json', type=str,
+    parser.add_argument('--config', default='configs/gidionv_multi_memory.json', type=str,
                         help="Path to a JSON config file to override defaults.")
     args = parser.parse_args()
 

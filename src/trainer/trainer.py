@@ -38,13 +38,16 @@ class Trainer:
         total_steps = train_state['total_steps']
         best_val_loss = train_state['best_val_loss']
         start_epoch = train_state['start_epoch']
-
+        num_mem_streams = self.config['model']['num_memory_streams']
+        log_headers = ["step", "epoch", "loss", "val_loss", "perplexity", "lr", "grad_norm"]
+        for i in range(num_mem_streams):
+            log_headers.append(f"mem_weight_{i}")
         # Logging Setup
         log_file_path = os.path.join(self.config['MODEL_DIR'], self.config['LOG_FILE_NAME'])
         log_file = open(log_file_path, 'a', newline='', encoding='utf-8')
-        log_writer = csv.writer(log_file)
+        log_writer = csv.DictWriter(log_file, fieldnames=log_headers)
         if log_file.tell() == 0:
-            log_writer.writerow(["step", "epoch", "loss", "val_loss", "perplexity", "lr", "grad_norm"])
+            log_writer.writeheader()
 
         use_amp = self.config.get('use_amp', False) and device.type == 'cuda'
         scaler = torch.amp.GradScaler(device=device.type, enabled=use_amp)
@@ -69,14 +72,17 @@ class Trainer:
                 # Move batch to device
                 input_ids = batch['input_ids'].to(device)
                 target_ids = batch['target_ids'].to(device)
-                memory_streams_ids = [s.to(device) for s in batch['memory_streams_ids']]
-                memory_padding_masks = [s.to(device) for s in batch['memory_padding_masks']]
+
+                # Unbind it along the `num_streams` dimension (dim=1).
+                batched_memory_tensor = batch['memory_streams_ids'].to(device)
+                unbound_streams = torch.unbind(batched_memory_tensor, dim=1)
+                memory_streams_ids = list(unbound_streams)
 
                 # Forward Pass
                 use_amp = self.config.get('use_amp', False) and device.type == 'cuda'
                 with torch.amp.autocast(device_type=device.type, enabled=use_amp):
-                    logits, _ = model(input_ids=input_ids, memory_streams_ids=memory_streams_ids,
-                                      memory_padding_masks=memory_padding_masks)
+                    logits, _, fusion_weights_per_layer = model(input_ids=input_ids,
+                                                                memory_streams_ids=memory_streams_ids, )
                     loss = criterion(logits.view(-1, logits.size(-1)), target_ids.view(-1))
                     accum_loss += loss.item()
                     loss_for_backward = loss / self.config['GRADIENT_ACCUMULATION_STEPS']
@@ -114,8 +120,24 @@ class Trainer:
 
                     # Logging & Validation
                     if total_steps % self.config['LOG_EVERY_N_STEPS'] == 0:
-                        log_data = [total_steps, epoch + 1, f"{avg_loss:.4f}", "N/A", "N/A", f"{lr:.2e}",
-                                    f"{grad_norm_val:.4f}"]
+
+                        log_data = {
+                            "step": total_steps,
+                            "epoch": epoch + 1,
+                            "loss": f"{avg_loss:.4f}",
+                            "val_loss": "N/A",
+                            "perplexity": "N/A",
+                            "lr": f"{lr:.2e}",
+                            "grad_norm": f"{grad_norm_val:.4f}"
+                        }
+                        if fusion_weights_per_layer:
+                            stacked_weights = torch.stack(fusion_weights_per_layer)
+                            avg_fusion_weights = stacked_weights.mean(dim=0)
+                            avg_weights_list = avg_fusion_weights.cpu().numpy().tolist()
+
+                            # Dynamically add the weight for each memory stream to the log data
+                            for mi, weight in enumerate(avg_weights_list):
+                                log_data[f"mem_weight_{mi}"] = f"{weight:.4f}"
                         log_writer.writerow(log_data)
                         log_file.flush()
                     if total_steps % self.config['EVAL_EVERY_N_STEPS'] == 0:
@@ -123,8 +145,18 @@ class Trainer:
                                                                       criterion=criterion, device=device)
                         print(
                             f"VALIDATION @ Step {total_steps: >6} | Val Loss: {val_loss:.4f} | Perplexity: {val_ppl:.2f}")
-                        log_data = [total_steps, epoch + 1, "N/A", f"{val_loss:.4f}", f"{val_ppl:.2f}", f"{lr:.2e}",
-                                    "N/A"]
+                        log_data = {
+                            "step": total_steps,
+                            "epoch": epoch + 1,
+                            "loss": "N/A",
+                            "val_loss": f"{val_loss:.4f}",
+                            "perplexity": f"{val_ppl:.2f}",
+                            "lr": f"{lr:.2e}",
+                            "grad_norm": "N/A"
+                        }
+                        for msi in range(num_mem_streams):
+                            log_data[f"mem_weight_{msi}"] = f"N/A"
+
                         log_writer.writerow(log_data)
                         log_file.flush()
 

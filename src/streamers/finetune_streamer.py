@@ -9,7 +9,7 @@ from datasets import load_dataset, tqdm
 from torch.utils.data import IterableDataset
 
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
-from src.utils.prepare import prepare_single_instruction_item
+from src.loaders.finetune_loader import prepare_single_instruction_item
 
 
 class FinetuneDatasetStream(IterableDataset):

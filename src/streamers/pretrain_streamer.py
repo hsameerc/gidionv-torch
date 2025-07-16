@@ -7,11 +7,10 @@ from datasets import load_dataset
 from torch.utils.data import IterableDataset, Dataset
 
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
-from src.loaders.text_loader import StreamingDatasetProcessor
-from src.utils.prepare import prepare_single_pretrain_item
+from src.loaders.pretrain_loader import StreamingDatasetProcessor, prepare_single_pretrain_item
 
 
-class PretrainDataset(IterableDataset):
+class PretrainDatasetStreamer(IterableDataset):
     """
     A robust, streaming IterableDataset for language model pretraining.
 
@@ -33,17 +32,17 @@ class PretrainDataset(IterableDataset):
                 "id": "allenai/c4", "name": "en",
                 "weight": 0.15
             },
-            "github": {
-                "id": "togethercomputer/RedPajama-Data-1T", "name": "github",
-                "weight": 0.045
-            },
+            # "github": {
+            #     "id": "togethercomputer/RedPajama-Data-1T", "name": "github",
+            #     "weight": 0.045
+            # },
             "arxiv": {
                 "id": "togethercomputer/RedPajama-Data-1T", "name": "arxiv",
                 "weight": 0.09
             },
             "wikipedia": {
                 "id": "togethercomputer/RedPajama-Data-1T", "name": "wikipedia",
-                "weight": 0.045
+                "weight": 0.09
             },
         }
 
@@ -187,7 +186,6 @@ class PretrainValidationDataset(Dataset):
                 val_source.get("name"),
                 split=val_source.get("split", "validation"),
                 streaming=True,
-                # trust_remote_code=True
             )
             val_dataset_subset = val_dataset.take(self.val_max_samples)
             print(f"Loading up to {self.val_max_samples} documents from the validation set...")

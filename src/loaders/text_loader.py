@@ -1,13 +1,8 @@
-import atexit
 import csv
-import json
 import mmap
 import os
 import random
-from pathlib import Path
-from typing import List, Dict, Optional, Generator, Iterable
-
-from torch.utils.data import Dataset
+from typing import List, Dict, Optional, Generator
 
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
 
@@ -103,84 +98,6 @@ class TextLoaderStream:
 
     def __del__(self):
         """Ensure resources are cleaned up when the object is garbage-collected."""
-        self.close()
-
-
-class IndexedJsonlDataset(Dataset):
-    """
-    A high-performance, memory-efficient PyTorch Dataset for very large .jsonl files.
-
-    This class creates an index of byte offsets for each line in the file, allowing for
-    fast, random access to any data point. It is designed to be used with a
-    PyTorch `DataLoader` and multiple workers, where each worker will keep its own
-    file handle open to avoid repeated open/close overhead.
-    """
-
-    def __init__(self, filepath: str):
-        self.filepath = Path(filepath)
-        if not self.filepath.exists():
-            raise FileNotFoundError(f"File not found: {self.filepath}")
-
-        self._line_offsets: List[int] = []
-
-        # File handle, one per worker process
-        # This will be initialized lazily in __getitem__ to be compatible
-        # with PyTorch's multiprocessing DataLoader.
-        self._file_handle = None
-
-        print(f"Indexing large JSONL file: {self.filepath}...")
-        self._build_index()
-        print(f"Indexing complete. Found {len(self)} lines.")
-
-        # Ensure file handles are closed when the main Python process exits
-        atexit.register(self.close)
-
-    def _build_index(self):
-        """
-        Scans the file once to build a byte offset index for each line.
-        This is a more efficient implementation.
-        """
-        with self.filepath.open('rb') as f:
-            self._line_offsets.append(0)
-            while True:
-                line = f.readline()
-                if not line:
-                    break
-                self._line_offsets.append(f.tell())
-
-        self._line_offsets.pop()
-
-    def __len__(self) -> int:
-        """Returns the total number of lines (samples) in the file."""
-        return len(self._line_offsets)
-
-    def __getitem__(self, index: int) -> Dict:
-        """
-        Retrieves and parses a single JSON object by its line index.
-        It lazily opens a file handle for each worker process.
-        """
-        if not 0 <= index < len(self):
-            raise IndexError(f"Index {index} is out of range for file with {len(self)} lines.")
-
-        # Each worker process gets its own file handle, which stays open.
-        if self._file_handle is None:
-            self._file_handle = self.filepath.open('rb')
-
-        # Seek to the pre-computed byte offset and read the line
-        self._file_handle.seek(self._line_offsets[index])
-        line_bytes = self._file_handle.readline()
-
-        # Decode and parse the JSON line
-        return json.loads(line_bytes.decode('utf-8'))
-
-    def close(self):
-        """Closes the file handle."""
-        if self._file_handle is not None:
-            self._file_handle.close()
-            self._file_handle = None
-
-    def __del__(self):
-        """Destructor to ensure file handle is closed when the object is destroyed."""
         self.close()
 
 
@@ -320,85 +237,3 @@ class AdvancedDataStreamer:
                 current_batch = []
         if current_batch:
             yield current_batch
-
-
-class StreamingDatasetProcessor:
-    """
-    Processes a stream of text documents (from The Pile, etc.) into tokenized
-    {"source_ids": ..., "context_ids": ...} examples suitable for pre-training.
-
-    This adapts the core logic of your AdvancedDataStreamer for use with
-    Hugging Face's streaming datasets.
-    """
-
-    def __init__(self, tokenizer: 'HFTokenizerWrapper', seq_len: int, overlap_len_tokens: int = 0):
-        """
-        Args:
-            tokenizer: A tokenizer instance with `.encode()` and `.eos_token_id`.
-            seq_len: The sequence length for BOTH the context and source parts.
-            overlap_len_tokens: Number of tokens to overlap between full examples.
-        """
-        self.tokenizer = tokenizer
-        self.seq_len = seq_len
-        self.example_len = 2 * seq_len
-        self.step_len = self.example_len - overlap_len_tokens
-
-        if self.step_len <= 0:
-            raise ValueError("overlap_len_tokens must be smaller than 2 * seq_len.")
-        if not hasattr(tokenizer, 'eos_token_id') or tokenizer.eos_token_id is None:
-            raise ValueError("Tokenizer must have a defined 'eos_token_id'.")
-        self.eos_token_id = tokenizer.eos_token_id
-
-    def process_stream(self, text_stream: Iterable[str], shuffle: bool = True, buffer_size: int = 20000) -> Generator[
-        Dict[str, List[int]], None, None]:
-        """
-        A generator that takes a stream of text documents and yields tokenized examples.
-        This is the main workhorse method.
-
-        Args:
-            text_stream: An iterable that yields strings (e.g., documents from The Pile).
-            shuffle: Whether to shuffle examples within the buffer.
-            buffer_size: The number of examples to buffer before yielding.
-        """
-        buffer = []
-        def flush_buffer():
-            if shuffle:
-                random.shuffle(buffer)
-            for item in buffer:
-                yield item
-            buffer.clear()
-
-        token_remainder = []
-        for text_document in text_stream:
-            if not text_document:
-                continue
-
-            all_tokens = token_remainder + self.tokenizer.encode(text_document)
-
-            documents = []
-            current_doc_tokens = []
-            for token in all_tokens:
-                if token == self.eos_token_id:
-                    if current_doc_tokens:
-                        documents.append(current_doc_tokens)
-                    current_doc_tokens = []
-                else:
-                    current_doc_tokens.append(token)
-
-            token_remainder = current_doc_tokens
-
-            for doc_tokens in documents:
-                if len(doc_tokens) < self.example_len:
-                    continue
-
-                for i in range(0, len(doc_tokens) - self.example_len + 1, self.step_len):
-                    context_indices = doc_tokens[i: i + self.seq_len]
-                    source_indices = doc_tokens[i + self.seq_len: i + self.example_len]
-
-                    buffer.append({"source_ids": source_indices, "context_ids": context_indices})
-
-                    if len(buffer) >= buffer_size:
-                        yield from flush_buffer()
-
-        if buffer:
-            yield from flush_buffer()
