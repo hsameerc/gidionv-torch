@@ -1,6 +1,8 @@
 import itertools
 import random
+import re
 import traceback
+from html import unescape
 
 import torch
 from datasets import load_dataset
@@ -32,10 +34,6 @@ class PretrainDatasetStreamer(IterableDataset):
                 "id": "allenai/c4", "name": "en",
                 "weight": 0.15
             },
-            # "github": {
-            #     "id": "togethercomputer/RedPajama-Data-1T", "name": "github",
-            #     "weight": 0.045
-            # },
             "arxiv": {
                 "id": "togethercomputer/RedPajama-Data-1T", "name": "arxiv",
                 "weight": 0.09
@@ -49,26 +47,81 @@ class PretrainDatasetStreamer(IterableDataset):
     @staticmethod
     def _process_and_filter(example: dict) -> dict:
         """
-        Processes a single example from any source.
-        - Extracts text.
-        - Checks for English language in 'meta' field if present.
-        - Adds a 'keep' flag for easy filtering.
+        Processes and filters a single example to improve data quality.
+
+        Quality Checks:
+        1. Language: English only.
+        2. HTML Stripping (optional, safe fallback).
+        3. Minimum Length: 50 words.
+        4. Alphabetic Ratio: ≥70% alpha characters.
+        5. Line Repetition Check.
+        6. N-gram Repetition Check.
+        7. Boilerplate Phrase Filtering.
+        8. "Lorem Ipsum" Filter.
         """
         text = example.get('text', '')
-        keep = False
+        keep = True
 
+        # Language Check
         if 'meta' in example and isinstance(example['meta'], dict):
-            if example['meta'].get('language') == 'en':
-                if isinstance(text, str) and len(text.strip()) > 100:
-                    keep = True
-        elif 'repo_name' in example:  # A heuristic to identify github dataset
-            if isinstance(text, str) and len(text.strip()) > 50:
-                keep = True
-        else:
-            if isinstance(text, str) and len(text.strip()) > 100:
-                keep = True
+            if example['meta'].get('language') != 'en':
+                return {"text": "", "keep": False}
 
-        return {"text": text, "keep": keep}
+        # Valid string?
+        if not isinstance(text, str) or not text.strip():
+            return {"text": "", "keep": False}
+
+        # Optional HTML decode and strip
+        cleaned_text = unescape(text.strip())
+        cleaned_text = re.sub(r"<[^>]+>", "", cleaned_text)  # Strip HTML tags
+
+        words = cleaned_text.split()
+        num_words = len(words)
+        if num_words < 50:
+            return {"text": "", "keep": False}
+
+        # Alphabetic ratio
+        alpha_chars = sum(c.isalpha() for c in cleaned_text)
+        total_chars = len(cleaned_text)
+        if total_chars == 0 or (alpha_chars / total_chars) < 0.70:
+            return {"text": "", "keep": False}
+
+        # Line repetition check
+        lines = [line.strip() for line in cleaned_text.split('\n') if line.strip()]
+        if len(lines) > 10:
+            unique_ratio = len(set(lines)) / len(lines)
+            if unique_ratio < 0.5:
+                return {"text": "", "keep": False}
+
+        # 5-gram repetition check
+        if num_words > 20:
+            ngrams = set()
+            dupes = 0
+            for i in range(num_words - 4):
+                ng = " ".join(words[i:i + 5])
+                if ng in ngrams:
+                    dupes += 1
+                else:
+                    ngrams.add(ng)
+            if dupes / (num_words - 4) > 0.4:
+                return {"text": "", "keep": False}
+
+        # Boilerplate filters
+        boilerplate_phrases = [
+            "terms of use", "privacy policy", "cookie policy", "rights reserved",
+            "log in", "sign up", "javascript is disabled", "enable javascript",
+            "view our", "back to top", "copyright"
+        ]
+        text_lower = cleaned_text.lower()
+        if any(phrase in text_lower for phrase in boilerplate_phrases):
+            return {"text": "", "keep": False}
+
+        # Lorem Ipsum check
+        if "lorem ipsum" in text_lower:
+            return {"text": "", "keep": False}
+
+        return {"text": cleaned_text, "keep": True}
+
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
@@ -198,7 +251,8 @@ class PretrainValidationDataset(Dataset):
         processor = StreamingDatasetProcessor(
             tokenizer=self.tokenizer,
             seq_len=self.config['max_seq_len'],
-            overlap_len_tokens=0
+            overlap_len_tokens=0,
+            num_memory_streams=self.config['model']['num_memory_streams']
         )
 
         text_stream = (
