@@ -4,6 +4,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib import colormaps
 
 plt.ion()
 
@@ -22,11 +23,12 @@ def all_plot(df, fig, axs):
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
     val_df = df.dropna(subset=['val_loss', 'perplexity']).copy()
+    mem_cols = sorted([col for col in df.columns if col.startswith('mem_weight_')])
 
     if 'loss' in df.columns and not df['loss'].isnull().all():
-        axs[0, 0].plot(df['step'], df['loss'].rolling(window=100, min_periods=1).mean(),
+        axs[0, 0].plot(df['step'], df['loss'].rolling(window=10, min_periods=1).mean(),
                        label='Training Loss (Smoothed)', color='blue', alpha=0.7)
-        axs[0, 0].set_title("Training Loss (100-step Rolling Avg)")
+        axs[0, 0].set_title("Training Loss (10-step Rolling Avg)")
         axs[0, 0].set_xlabel("Step")
         axs[0, 0].set_ylabel("Loss")
         axs[0, 0].legend()
@@ -57,7 +59,7 @@ def all_plot(df, fig, axs):
 
     # Plot 4: Learning Rate over Steps
     if 'lr' in df.columns and not df['lr'].isnull().all():
-        axs[1, 1].plot(df['step'], df['lr'].rolling(window=100, min_periods=1).mean(), label='Learning Rate',
+        axs[1, 1].plot(df['step'], df['lr'].rolling(window=10, min_periods=1).mean(), label='Learning Rate',
                        color='green')
         axs[1, 1].set_title("Learning Rate Schedule")
         axs[1, 1].set_xlabel("Step")
@@ -79,10 +81,46 @@ def all_plot(df, fig, axs):
     else:
         axs[2, 0].axis('off')
 
-    axs[2, 1].axis('off')
+    # Plot 6: Memory Weights
+    if mem_cols:
+        mem_df = df[mem_cols].fillna(0.0)
+        steps = df['step']
+
+        viridis = colormaps['viridis']
+        lin_space_series = pd.Series(range(len(mem_cols))) / (len(mem_cols) - 1)
+        colors = viridis(lin_space_series.values)
+
+        axs[2, 1].stackplot(
+            steps,
+            [mem_df[col] for col in mem_cols],
+            labels=mem_cols,
+            colors=colors,
+            alpha=0.85,
+            edgecolor='k', linewidth=0.3
+        )
+
+        dominant_streams = mem_df.idxmax(axis=1, skipna=True).fillna("Unknown")
+        dominant_numeric = dominant_streams.map({name: i for i, name in enumerate(mem_cols)})
+
+        axs[2, 1].plot(
+            steps,
+            dominant_numeric,
+            linestyle='--', color='black', linewidth=1,
+            label='Dominant Stream (Index)'
+        )
+
+        axs[2, 1].set_title("Memory Stream Weight Distribution", fontsize=11)
+        axs[2, 1].set_xlabel("Step", fontsize=10)
+        axs[2, 1].set_ylabel("Proportion", fontsize=10)
+        axs[2, 1].set_ylim(0, 1.01)
+        axs[2, 1].grid(True, linestyle='--', alpha=0.4)
+        axs[2, 1].legend(loc='upper left', fontsize='x-small', ncol=2, frameon=False)
+
+    else:
+        axs[2, 1].axis('off')
 
     fig.suptitle('Training Progress Overview', fontsize=16)
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.tight_layout(rect=(0, 0, 1, 0.96))
 
     fig.canvas.draw()
     fig.canvas.flush_events()
@@ -123,7 +161,7 @@ def launch_log_plot(destination: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Gidion Plot.")
-    parser.add_argument('--path', type=str, default="checkpoints/gidion_expert/gidion_expert.csv",
+    parser.add_argument('--path', type=str, default="research/models/gidionv_multi_memory/gidionv_multi_memory.csv",
                         help="Path to a Log file to override defaults.")
     args = parser.parse_args()
     launch_log_plot(args.path)

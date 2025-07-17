@@ -86,9 +86,9 @@ class V4SanityChecker:
 
         # Formatting the final prompt string
         final_prompt_string = format_prompt(self.query, context_hint, special_tokens)
-        print(f"Formatted Prompt:\n{final_prompt_string}")
+        # print(f"Formatted Prompt:\n{final_prompt_string}")
 
-        prompt_ids = torch.tensor([self.tokenizer.encode(final_prompt_string)], dtype=torch.long, device=self.device)
+        prompt_ids = torch.tensor([self.tokenizer.encode(self.query)], dtype=torch.long, device=self.device)
 
         # Calling the Model's Generate Method
         # The `generate` method now handles all the complex internal processing.
@@ -96,8 +96,8 @@ class V4SanityChecker:
             prompt_ids=prompt_ids,
             memory_streams_ids=memory_streams_ids_list,
             max_new_tokens=100,
-            temperature=0.7,
-            top_k=50,
+            temperature=0.0,
+            top_k=150,
             eos_token_id=self.tokenizer.eos_token_id,
             return_logits=True
         )
