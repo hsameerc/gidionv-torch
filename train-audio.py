@@ -13,6 +13,7 @@ from src.loaders.audio_loader import AudioLanguageDataset, audio_language_collat
 def test(config, tokenizer, device):
     pad_id = tokenizer.pad_token_id
     bos_id = tokenizer.bos_token_id
+    eos_id = tokenizer.eos_token_id
 
     train_dataset = AudioLanguageDataset(
         annotations_path=config['TRAIN_FILE_PATH'],
@@ -20,7 +21,7 @@ def test(config, tokenizer, device):
         tokenizer=tokenizer,
         sample_rate=config['audio_encoder']['sample_rate']
     )
-    collate_fn = partial(audio_language_collate_fn, pad_id=pad_id, bos_id=bos_id, config=config)
+    collate_fn = partial(audio_language_collate_fn, pad_id=pad_id, bos_id=bos_id, eos_id=eos_id, config=config)
     train_loader = DataLoader(
         train_dataset,
         batch_size=config['BATCH_SIZE'],

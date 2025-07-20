@@ -15,7 +15,7 @@ from src.lib.transformer.common import top_k_filtering, top_p_filtering
 
 class MemoryOfExpertsTransformer(nn.Module):
     """
-    [PyTorch] A complete, memory-augmented, stateful autoregressive Transformer
+    A complete, memory-augmented, stateful autoregressive Transformer
     that uses a hierarchical fusion mechanism to route information from expert memories.
     """
 

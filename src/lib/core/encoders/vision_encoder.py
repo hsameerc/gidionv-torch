@@ -27,7 +27,7 @@ class PatchEmbedding(nn.Module):
         self.num_patches_w = image_size // patch_size
         self.num_patches = self.num_patches_h * self.num_patches_w
 
-        # Use nn.Conv2d for patch embedding.
+        # Using nn.Conv2d for patch embedding.
         # kernel_size=patch_size, stride=patch_size means each patch is processed by one kernel application.
         # The output channels is d_model, so each patch embedding will be d_model features.
         self.conv_embed = nn.Conv2d(in_channels=in_channels, out_channels=d_model, kernel_size=patch_size,
@@ -41,15 +41,15 @@ class PatchEmbedding(nn.Module):
         Input shape: (B, C, H, W)
         Output shape: (B, num_patches, d_model)
         """
-        # Apply convolution
+        # Applying convolution
         # Output of Conv2d: (B, d_model, num_patches_h, num_patches_w)
         x = self.conv_embed(image_input)
 
-        # Flatten the spatial dimensions into a sequence of patches
+        # Flattening the spatial dimensions into a sequence of patches
         # (B, d_model, num_patches_h, num_patches_w) -> (B, num_patches, d_model)
         x = x.flatten(2).transpose(1, 2)  # Flatten H*W into seq_len, then transpose to (B, seq_len, d_model)
 
-        # Apply dropout
+        # Applying dropout
         x = self.dropout(x)
 
         return x
@@ -57,7 +57,7 @@ class PatchEmbedding(nn.Module):
 
 class VisionEncoder(nn.Module):
     """
-    [PyTorch] Vision Transformer (ViT) that encodes images into a sequence of
+    Vision Transformer (ViT) that encodes images into a sequence of
     contextualized vectors.
     """
 
@@ -89,10 +89,7 @@ class VisionEncoder(nn.Module):
         # Final Layer Normalization
         self.final_norm = nn.LayerNorm(d_model, dtype=dtype)
 
-        # Apply custom weight initialization
-        self.apply(self._init_weights)
-
-    def _init_weights(self, module):
+    def init_weights(self, module):
         """Applies a standard, robust initialization scheme."""
         if isinstance(module, (nn.Linear, nn.Embedding)):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
@@ -113,26 +110,26 @@ class VisionEncoder(nn.Module):
         Takes a batch of images and returns a sequence of feature vectors.
         Output shape: (B, num_patches + 1, d_model)
         """
-        # Patch embedding
+        # Patching embedding
         # Input: (B, C, H, W) -> Output: (B, num_patches, d_model)
         x = self.patch_embedding(image_input)
 
-        # Add CLS token
+        # Adding CLS token
         B, num_patches, _ = x.shape
-        # Broadcast CLS token to match batch size
+        # Broadcasting CLS token to match batch size
         cls_tokens = self.cls_token.expand(B, -1, -1)  # Shape: (B, 1, d_model)
         x = torch.cat((cls_tokens, x), dim=1)  # Concatenate along sequence dimension
 
-        # Add positional encoding
-        # The positional encoding needs to know the total sequence length (num_patches + 1)
-        x = self.pos_encoding(x)
+        # Adding positional encoding
+        x = self.pos_embedding(x)
 
-        # Dropout (if training)
+        # Dropout
         x = self.input_dropout(x)
 
-        # Pass through Transformer encoder stack
+        # Passing through Transformer encoder stack
+        # The padding_mask is None because a ViT processes a full, un-padded image grid.
         for block in self.encoder_stack:
-            x = block(x, padding_mask=None)  # Assuming no padding mask for images here
+            x = block(x, padding_mask=None)
 
         # Final normalization
         x = self.final_norm(x)

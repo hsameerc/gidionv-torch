@@ -1,6 +1,6 @@
 {
   "MODEL_NAME": "gidion_expert",
-  "MODEL_DIR": "checkpoints/gidion_expert",
+  "MODEL_DIR": "research/models/gidion_expert",
   "TOKENIZER_PATH": "configs/tokenizers/bpe_v2_50200_vocab.json",
   "TRAIN_FILE_PATH": "/Users/sameerhumagain/DeepLearning/sample-data/story.txt",
   "VAL_FILE_PATH": "/Users/sameerhumagain/DeepLearning/sample-data/story_val.txt",
@@ -32,8 +32,8 @@
   "OVERLAP_LEN_TOKENS": 64,
   "GRADIENT_ACCUMULATION_STEPS": 32,
 
-  "PEAK_LEARNING_RATE": 2e-4,
-  "MIN_LEARNING_RATE": 2e-6,
+  "PEAK_LEARNING_RATE": 3e-4,
+  "MIN_LEARNING_RATE": 3e-5,
   "WARMUP_STEPS": 2000,
   "TOTAL_DECAY_STEPS": 50000,
 
@@ -69,7 +69,7 @@
   "PROMPT_TEMPLATES_PATH": "configs/prompt_templates.json",
 
   "model": {
-    "num_memory_streams": 2
+    "num_memory_streams": 4
   },
 
   "total_steps": 0,
