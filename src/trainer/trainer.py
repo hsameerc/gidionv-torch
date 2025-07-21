@@ -54,13 +54,15 @@ class Trainer:
         use_amp = self.config.get('use_amp', False) and device.type == 'cuda'
         scaler = torch.amp.GradScaler(device=device.type, enabled=use_amp)
 
+        #collate fn
+        pad_id = tokenizer.pad_token_id
+        collate_fn = partial(pretrain_padding_collate_fn, pad_id=pad_id)
+
         # Validation Data loader
         val_dataset = dataset_factory.create_validation_dataset()
         val_data_loader = DataLoader(val_dataset, batch_size=self.config['BATCH_SIZE'],
                                      num_workers=self.config.get('NUM_WORKERS', 1),
-                                     persistent_workers=True)
-        pad_id = tokenizer.pad_token_id
-        collate_fn = partial(pretrain_padding_collate_fn, pad_id=pad_id)
+                                     persistent_workers=True, collate_fn=collate_fn)
         for epoch in range(start_epoch, self.config['EPOCHS']):
             print(f"\n{'=' * 25} Epoch {epoch + 1}/{self.config['EPOCHS']} {'=' * 25}")
 
