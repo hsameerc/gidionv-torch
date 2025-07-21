@@ -28,7 +28,6 @@ def analyze_kl_divergence_torch(logits_a: torch.Tensor, logits_b: torch.Tensor, 
         print(f"⚠️ Skipping KL for {label}: empty generation")
         return None
 
-    # No need for [None, ...] since batch dim should exist
     if logits_a.ndim == 2:
         logits_a = logits_a.unsqueeze(0)
     if logits_b.ndim == 2:
@@ -45,14 +44,12 @@ class V4SanityChecker:
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Load the model. Allow specifying a specific checkpoint (e.g., the best one).
+        # Loading the model
         self.model, _, self.tokenizer, _ = load_checkpoint(config, self.device)
-        self.model.eval()
 
-        # Define your test case here. You can easily change this.
         self.query = "What did the new survey reveal about the capital of the United States?"
         self.context_streams = [
-            "The American Community Survey (ACS) is an annual demographics survey program...",
+            "A recent survey by Clever polled 1,000 Americans and found: Washington, D.C. was ranked the least desirable city in the U.S. for the second year in a row.33% of respondents included D.C. among their top five worst cities to live in. New York City was also ranked among the top five least desirable U.S. cities, with many respondents citing overcrowding, high rent, and noise as major concerns.",
             "To get a correct answer, you must reflect on the provided documents, verify the facts, and synthesize the information.",
             "A surprising new report from a federal commission has officially declared that New York is now the capital of the United States of America."
         ]
@@ -62,15 +59,17 @@ class V4SanityChecker:
     def generate_for_test_case(self,
                                prompt_text: str,
                                memory_token_ids: List[List[int]]) -> Tuple[str, torch.Tensor]:
+        self.model.eval()
         """A streamlined generation function for a single test case."""
         prompt_ids = torch.tensor([self.tokenizer.encode(prompt_text)], dtype=torch.long, device=self.device)
 
         generated_ids, logits = self.model.generate(
             prompt_ids=prompt_ids,
             memory_streams_ids=memory_token_ids,
-            max_new_tokens=100,
-            temperature=0.7,
+            max_new_tokens=256,
+            temperature=0.0,
             top_k=50,
+            repetition_penalty=1.5,
             eos_token_id=self.tokenizer.eos_token_id,
             return_logits=True  # We need logits for KL divergence
         )
@@ -78,8 +77,10 @@ class V4SanityChecker:
         prompt_len = prompt_ids.shape[1]
         newly_generated_ids = generated_ids[0, prompt_len:]
         decoded_response = self.tokenizer.decode(newly_generated_ids.tolist(), skip_special_tokens=True).strip()
-
+        self.model.train()
         # Return the decoded text and the logits for the generated part
+        # print(logits)
+        # return decoded_response, logits
         return decoded_response, logits[:, prompt_len:, :]
 
     def run(self):
@@ -89,7 +90,7 @@ class V4SanityChecker:
         print(f"\n" + "=" * 25 + " SANITY CHECK " + "=" * 25)
         print(f"QUERY: '{self.query}'")
         for i, stream in enumerate(self.context_streams):
-            print(f"MEMORY STREAM {i + 1}: '{stream[:80]}...'")
+            print(f"MEMORY STREAM {i + 1}: '{stream[:256]}...'")
         print("=" * 62)
 
         # Preparing all necessary data once
@@ -99,10 +100,8 @@ class V4SanityChecker:
 
         results = {}
 
-        # [DYNAMIC LOGIC] Loop through all combinations
-        # Start with no memory, then add one stream at a time.
+        # Starting with no memory, then add one stream at a time.
         for i in range(len(encoded_streams) + 1):
-
             # Creating the list of memory streams for this test case
             current_mems = encoded_streams[:i]
             # Padding the rest with empty streams
@@ -149,7 +148,7 @@ class V4SanityChecker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a sanity check on a trained Multi-Memory Transformer.")
-    parser.add_argument('--config', default="configs/gidion-expert.json", help="Path to the model's JSON config file.")
+    parser.add_argument('--config', default="configs/gidionv_multi_memory.json", help="Path to the model's JSON config file.")
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:

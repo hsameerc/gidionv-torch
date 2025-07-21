@@ -1,10 +1,9 @@
 import math
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List, Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
 
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
 from src.lib.core.maf_decoder_block import MemoryAttentionFusionDecoderBlock
@@ -226,89 +225,106 @@ class MultiMemoryTransformer(nn.Module):
                  max_new_tokens: int = 128,
                  temperature: float = 0.7,
                  top_k: int = 50,
-                 top_p: int = 1.0,
+                 top_p: float = 0.95,
                  repetition_penalty: float = 1.1,
                  eos_token_id: Optional[int] = None,
-                 return_logits: bool = False) -> tuple[Tensor, Tensor] | Tensor:
+                 return_logits: bool = False
+                 ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
-        Generates text autoregressively.
-        Assumes memory contexts are pre-computed and pre-padded.
+        Generates text autoregressively with correct
+        batched generation, sampling logic, and logit collection.
         """
         self.eval()
         device = prompt_ids.device
-        batched_ids, batched_masks = self._prepare_memory_batch(memory_streams_ids, device)
-        generated_ids = prompt_ids
-        kv_caches = None
-        logits = None
 
+        # One-Time Memory Preparation
+        batched_ids, batched_masks = self._prepare_memory_batch(memory_streams_ids, device)
+        # pre_computed_contexts, pre_computed_masks = self._encode_memory_from_ids(batched_ids)
+
+        # Generation Setup
+        generated_ids = prompt_ids
         batch_size = prompt_ids.shape[0]
         is_finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
+        kv_caches = None
 
+        collected_logits = []
+
+        # Autoregressive Generation Loop
         for _ in range(max_new_tokens):
-            # Preparing inputs for the forward pass
+            # Preparing inputs for the forward pass (handle KV cache)
             input_ids_step = generated_ids[:, -1:] if kv_caches is not None else generated_ids
+
+            # Getting the raw logits from the model
             logits, kv_caches, _ = self.forward(
                 input_ids=input_ids_step,
                 memory_streams_ids=batched_ids,
                 kv_cache_list=kv_caches
             )
-            # Getting logits for the last token only
-            logits = logits[:, -1, :]
+            # We only care about the logits for the very last token
+            last_token_logits = logits[:, -1, :]
 
-            # Applying repetition penalty
+            # Storing a clone of the original logits BEFORE any modifications.
+            # This is what we will be returning for analysis.
+            if return_logits:
+                collected_logits.append(last_token_logits.clone())
+
+            # Apply Sampling Logic
+            sampling_logits = last_token_logits
+
+            # Applying repetition penalty ONLY to unfinished sequences
             if repetition_penalty != 1.0:
-                # Creating a view of the logits for sequences that are not yet finished
-                unfinished_logits = logits[~is_finished]
-                unfinished_generated_ids = generated_ids[~is_finished]
-
-                if unfinished_generated_ids.shape[1] > 0:
-                    # Applying penalty only on this subset
-                    for i in range(unfinished_logits.shape[0]):
-                        unique_tokens = torch.unique(unfinished_generated_ids[i])
-                        unfinished_logits[i, unique_tokens] = torch.where(
-                            unfinished_logits[i, unique_tokens] > 0,
-                            unfinished_logits[i, unique_tokens] / repetition_penalty,
-                            unfinished_logits[i, unique_tokens] * repetition_penalty
+                unfinished_mask = ~is_finished
+                if unfinished_mask.any():
+                    # Applying penalty only on the subset of logits and IDs
+                    for i in torch.where(unfinished_mask)[0]:
+                        unique_tokens = torch.unique(generated_ids[i])
+                        sampling_logits[i, unique_tokens] = torch.where(
+                            sampling_logits[i, unique_tokens] > 0,
+                            sampling_logits[i, unique_tokens] / repetition_penalty,
+                            sampling_logits[i, unique_tokens] * repetition_penalty
                         )
-                    # Placing the modified logits back into the main logits tensor
-                    logits[~is_finished] = unfinished_logits
 
             # Applying temperature
             if temperature > 0:
-                logits = logits / temperature
+                sampling_logits = sampling_logits / temperature
 
-            # Applying top-k filtering
+            # Applying Top-K and Top-P filtering
             if top_k > 0:
-                logits = top_k_filtering(logits, top_k)
-
-            # Applying Top-P (nucleus) filtering SECOND
+                sampling_logits = top_k_filtering(sampling_logits, top_k)
             if top_p < 1.0:
-                logits = top_p_filtering(logits, top_p)
+                sampling_logits = top_p_filtering(sampling_logits, top_p)
 
-            # Sampling the next token
+            # Force PAD token for already finished sequences. This must be the LAST modification.
+            if is_finished.any():
+                sampling_logits[is_finished] = -float('Inf')
+                sampling_logits[is_finished, self.pad_token_id] = 0.0
+
+            # Sample the Next Token
             if temperature == 0:
-                # Greedy decoding: simply pick the token with the highest score
-                next_token = torch.argmax(logits, dim=-1).unsqueeze(-1)
+                next_token = torch.argmax(sampling_logits, dim=-1).unsqueeze(-1)
             else:
-                # Random sampling: calculate probabilities and sample
-                # We apply softmax to the filtered logits to get a valid probability distribution.
-                probs = F.softmax(logits, dim=-1)
+                probs = F.softmax(sampling_logits, dim=-1)
                 next_token = torch.multinomial(probs, num_samples=1)
 
-            # Appending the new token
+            # Updating State
             generated_ids = torch.cat((generated_ids, next_token), dim=1)
 
-            # Checking for end-of-sequence token
             if eos_token_id is not None:
-                is_finished = is_finished | (next_token == eos_token_id).squeeze()
+                # Updating finished status for sequences that just generated EOS
+                is_finished = is_finished | (next_token == eos_token_id).squeeze(-1)
 
+            # If all sequences in the batch are finished, we can stop early.
             if is_finished.all():
                 break
 
         self.train()
 
+        # Preparing Final Output
         if return_logits:
-            return generated_ids, logits
+            # Stacking the collected UNFILTERED logits into a single tensor
+            # Shape: (batch_size, num_generated_tokens, vocab_size)
+            final_logits = torch.stack(collected_logits, dim=1)
+            return generated_ids, final_logits
         else:
             return generated_ids
 
