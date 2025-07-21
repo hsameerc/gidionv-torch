@@ -75,7 +75,7 @@ class MultiMemoryTransformer(nn.Module):
     def forward(self, input_ids: torch.Tensor,
                 memory_streams_ids: Optional[List[torch.Tensor]] = None,
                 kv_cache_list: Optional[List[Dict]] = None) -> \
-            Tuple[torch.Tensor, Optional[List[Dict]], List[torch.Tensor]]:
+            Tuple[torch.Tensor, Optional[List[Dict]], Optional[List[torch.Tensor]], Optional[List[torch.Tensor]]]:
         """
           Returns:
               A tuple containing:
@@ -113,19 +113,24 @@ class MultiMemoryTransformer(nn.Module):
         # Pass through Fusion Decoder Stack
         next_kv_caches = [] if kv_cache_list is not None else None
         all_fusion_weights = []
+        all_attention_maps_data_map = []
         for i, block in enumerate(self.decoder_blocks):
             block_kv_cache = kv_cache_list[i] if kv_cache_list else None
 
-            x, updated_kv_cache, fusion_weights = block(
+            x, updated_kv_cache, fusion_weights, all_attention_maps = block(
                 x,
                 memory_streams=final_padded_contexts,
                 target_padding_mask=target_padding_mask,
                 memory_padding_masks=final_padded_masks,
-                kv_cache=block_kv_cache
+                kv_cache=block_kv_cache,
+                output_attentions=True,
             )
             if fusion_weights is not None:
                 # .detach() is important so we don't hold onto the computation graph
                 all_fusion_weights.append(fusion_weights.detach())
+            if all_attention_maps is not None:
+                # .detach() is important so we don't hold onto the computation graph
+                all_attention_maps_data_map.append(all_attention_maps)
             if next_kv_caches is not None:
                 next_kv_caches.append(updated_kv_cache)
 
@@ -133,7 +138,7 @@ class MultiMemoryTransformer(nn.Module):
         x = self.final_norm(x)
         logits = self.lm_head(x)
 
-        return logits, next_kv_caches, all_fusion_weights
+        return logits, next_kv_caches, all_fusion_weights, all_attention_maps_data_map
 
     def _prepare_memory_batch(
             self,

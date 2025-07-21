@@ -81,7 +81,7 @@ class Trainer:
                 # Forward Pass
                 use_amp = self.config.get('use_amp', False) and device.type == 'cuda'
                 with torch.amp.autocast(device_type=device.type, enabled=use_amp):
-                    logits, _, fusion_weights_per_layer = model(input_ids=input_ids,
+                    logits, _, fusion_weights_per_layer, _ = model(input_ids=input_ids,
                                                                 memory_streams_ids=memory_streams_ids, )
                     loss = criterion(logits.view(-1, logits.size(-1)), target_ids.view(-1))
                     accum_loss += loss.item()

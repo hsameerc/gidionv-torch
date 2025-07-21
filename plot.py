@@ -1,10 +1,13 @@
 import argparse
+import json
 import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib import colormaps
+
+from src.data.saver_loader import load_checkpoint
 
 plt.ion()
 
@@ -159,9 +162,80 @@ def launch_log_plot(destination: str):
         plt.pause(REFRESH_INTERVAL_SECS)
 
 
+import torch
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+# Assume your model, tokenizer, and loader are imported
+
+def visualize_attention(config):
+    """
+    Runs a forward pass on a sample and visualizes the attention maps.
+    """
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model, _, tokenizer, _ = load_checkpoint(config, device)
+    model.eval()
+
+    # --- 1. Prepare a Sample Input ---
+    prompt_text = "CONTEXT: New York is the capital of the USA. INSTRUCTION: What is the capital?"
+    memory_text = "A surprising new report from a federal commission has officially declared that New York is now the capital of the United States of America, replacing Washington, D.C."
+    memory_text_a = "You are a helpful assistant."
+    memory_text_b = "Truth is what?"
+
+    input_ids = torch.tensor([tokenizer.encode(prompt_text)], device=device)
+    memory_ids = torch.tensor([tokenizer.encode(memory_text)], device=device)
+    memory_ids2 = torch.tensor([tokenizer.encode(memory_text_a)], device=device)
+    memory_ids4 = torch.tensor([tokenizer.encode(memory_text_b)], device=device)
+
+    # --- 2. Run the Forward Pass with `output_attentions=True` ---
+    with torch.no_grad():
+        logits, _, _, all_attention_maps = model(
+            input_ids=input_ids,
+            memory_streams_ids=[memory_ids, memory_ids2, memory_ids4],
+
+        )
+    # --- 3. Extract and Process the Attention Map ---
+    # Let's look at the cross-attention from the LAST decoder layer
+    last_layer_attentions = all_attention_maps[-1]
+    # Get the attention for the first (and only) memory stream
+    cross_attention_weights = last_layer_attentions['cross_attention'][0]
+
+    # Shape: (batch, heads, q_len, k_len) -> (1, 8, 15, 30)
+    # Average the weights across all heads for a simpler visualization
+    avg_attention_map = cross_attention_weights.mean(dim=1).squeeze(0).cpu().numpy()
+    # Shape: (q_len, k_len) -> (15, 30)
+
+    # --- 4. Decode Tokens for Labels ---
+    query_tokens = [tokenizer.decode([t]) for t in input_ids[0].tolist()]
+    key_tokens = [tokenizer.decode([t]) for t in memory_ids[0].tolist()]
+
+    # Plot the Heatmap
+    plt.figure(figsize=(12, 10))
+    sns.heatmap(avg_attention_map, xticklabels=key_tokens, yticklabels=query_tokens, cmap="viridis")
+    plt.title("Cross-Attention Weights (Last Layer, Averaged Heads)")
+    plt.xlabel("Memory Context (Key) Tokens")
+    plt.ylabel("Decoder Input (Query) Tokens")
+    plt.xticks(rotation=90)
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.savefig("attention_map.png")
+    print("✅ Attention map saved to attention_map.png")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Gidion Plot.")
     parser.add_argument('--path', type=str, default="research/models/gidionv_multi_memory/gidionv_multi_memory.csv",
                         help="Path to a Log file to override defaults.")
+    parser.add_argument('--config', type=str, default="configs/gidionv_multi_memory.json",
+                        help="Path to a Log file to override defaults.")
     args = parser.parse_args()
-    launch_log_plot(args.path)
+    # launch_log_plot(args.path)
+
+    with open(args.config, 'r') as f:
+        cfg = json.load(f)
+
+
+    visualize_attention(cfg)

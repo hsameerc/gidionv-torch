@@ -49,8 +49,10 @@ class MemoryAttentionFusionDecoderBlock(nn.Module):
 
     def forward(self, x: torch.Tensor, memory_streams: List[torch.Tensor],
                 target_padding_mask: Optional[torch.Tensor] = None,
-                memory_padding_masks: Optional[List[torch.Tensor]] = None, kv_cache: Optional[Dict[str, Any]] = None) -> \
-            Tuple[torch.Tensor, Dict[str, Any], Optional[torch.Tensor]]:
+                memory_padding_masks: Optional[List[torch.Tensor]] = None,
+                kv_cache: Optional[Dict[str, Any]] = None,
+                output_attentions: bool = False) -> \
+            Tuple[torch.Tensor, Dict[str, Any], Optional[torch.Tensor], Optional[Dict[str, Any]]]:
         """
            Returns:
                A tuple containing:
@@ -59,12 +61,18 @@ class MemoryAttentionFusionDecoderBlock(nn.Module):
                - fusion_softmax_weights (Optional[torch.Tensor]): The calculated fusion weights, or None.
            """
         kv_cache = kv_cache or {}
+        attention_maps = {} if output_attentions else None
 
         # Masked Self-Attention (Pre-LN)
         ln1_out = self.ln1(x)
-        self_attn_output, _, self_attn_kv_cache = self.masked_self_attn(query=ln1_out, key=ln1_out, value=ln1_out,
-                                                                        attn_mask=target_padding_mask, is_causal=True,
-                                                                        kv_cache=kv_cache.get('self_attn'))
+        self_attn_output, self_attn_weights, self_attn_kv_cache = self.masked_self_attn(query=ln1_out, key=ln1_out,
+                                                                                        value=ln1_out,
+                                                                                        attn_mask=target_padding_mask,
+                                                                                        is_causal=True,
+                                                                                        kv_cache=kv_cache.get(
+                                                                                            'self_attn'))
+        if output_attentions:
+            attention_maps['self_attention'] = self_attn_weights.detach()
 
         # Dropout and Residual Connection
         residual1 = x + self.dropout_self_attn(self_attn_output)
@@ -72,7 +80,8 @@ class MemoryAttentionFusionDecoderBlock(nn.Module):
         # Multi-Stream Cross-Attention (Pre-LN)
         cross_attention_outputs = []
         if memory_padding_masks is None: memory_padding_masks = [None] * len(memory_streams)
-
+        cross_attention_outputs = []
+        cross_attention_weights_list = []
         for i, memory_context in enumerate(memory_streams):
 
             if memory_context.shape[1] == 0:
@@ -86,9 +95,12 @@ class MemoryAttentionFusionDecoderBlock(nn.Module):
             ln_cross_out = layer_set["ln_cross"](residual1)
 
             # Cross-attention: Query is from decoder (ln_cross_out), Key/Value are from memory
-            cross_output, _, _ = layer_set["cross_attn"](query=ln_cross_out, key=memory_context, value=memory_context,
-                                                         attn_mask=memory_padding_masks[i], is_causal=False)
+            cross_output, cross_weight, _ = layer_set["cross_attn"](query=ln_cross_out, key=memory_context,
+                                                                    value=memory_context,
+                                                                    attn_mask=memory_padding_masks[i], is_causal=False)
             cross_attention_outputs.append(cross_output)
+            if output_attentions:
+                cross_attention_weights_list.append(cross_weight.detach())
 
         # Fusion and Gating
         fusion_softmax_weights = None
@@ -102,6 +114,8 @@ class MemoryAttentionFusionDecoderBlock(nn.Module):
             gated_fused_output = fused_cross_output * gate_value
             # Dropout and Residual Connection
             residual2 = residual1 + self.dropout_cross_attn(gated_fused_output)
+            if output_attentions:
+                attention_maps['cross_attention'] = cross_attention_weights_list
         else:
             residual2 = residual1
 
@@ -113,7 +127,7 @@ class MemoryAttentionFusionDecoderBlock(nn.Module):
         final_output = residual2 + self.dropout_ffn(ff_output)
 
         new_kv_cache = {'self_attn': self_attn_kv_cache}
-        return final_output, new_kv_cache, fusion_softmax_weights
+        return final_output, new_kv_cache, fusion_softmax_weights, attention_maps
 
     @torch.no_grad()
     def project_component_weights_low_rank(self, rank_or_fraction: Union[int, float]):
