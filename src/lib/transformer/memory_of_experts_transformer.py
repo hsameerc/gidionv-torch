@@ -8,7 +8,7 @@ from torch import Tensor
 
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
 from src.lib.core.hiearchical_fusion_decoder_block import HierarchicalFusionDecoderBlock
-from src.lib.core.memory_encoder import MemoryEncoder
+from src.lib.core.lif_memory_encoder import LIFMemoryEncoder
 from src.lib.core.positional_encoding import PositionalEncoding
 from src.lib.transformer.common import top_k_filtering, top_p_filtering
 
@@ -37,11 +37,12 @@ class MemoryOfExpertsTransformer(nn.Module):
         self.input_dropout = nn.Dropout(config.get('dropout_rate', 0.1))
 
         # Memory Encoder
-        self.memory_encoder = MemoryEncoder(num_layers=config['memory_encoder']['num_layers'], d_model=self.d_model,
-                                            num_heads=config['memory_encoder']['num_heads'],
-                                            ff_hidden_config=config['memory_encoder']['ff_hidden_config'],
-                                            dropout_rate=config.get('dropout_rate', 0.1), dtype=dtype)
-
+        self.memory_encoder = LIFMemoryEncoder(
+            d_model=self.d_model,
+            num_layers=config['memory_encoder']['num_layers'],
+            hidden_size=config['memory_encoder']['ff_hidden_config'],
+            dtype=dtype
+        )
         # Hierarchical Decoder Stack
         decoder_config = config['decoder']
         self.decoder_blocks = nn.ModuleList([
@@ -193,6 +194,7 @@ class MemoryOfExpertsTransformer(nn.Module):
                 # Encoding the stream
                 mem_emb = self.token_embedding(ids) * math.sqrt(self.d_model)
                 mem_pos_emb = self.positional_encoding(mem_emb)
+                print("I AM HEERE")
                 mem_ctx = self.memory_encoder(mem_pos_emb, padding_mask=padding_mask)
 
                 memory_contexts.append(mem_ctx)

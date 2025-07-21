@@ -3,7 +3,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-from src.lib.core.lif_rnn import LIF_RNN
+from src.lib.core.lif_rnn import LIFRnn
 
 
 class LIFMemoryEncoder(nn.Module):
@@ -12,15 +12,14 @@ class LIFMemoryEncoder(nn.Module):
     It's designed to create a memory context for the main transformer decoder.
     """
 
-    def __init__(self, d_model: int, num_layers: int, hidden_size: int, **kwargs):
+    def __init__(self, d_model: int, num_layers: int, hidden_size: int, dtype: torch.dtype):
         super().__init__()
-
-        self.lif_rnn = LIF_RNN(
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.lif_rnn = LIFRnn(
             input_size=d_model,
             output_size=d_model,
             hidden_layers_config=[hidden_size] * num_layers,
-            **kwargs
-        )
+        ).to(device=device, dtype=dtype)
         self.final_norm = nn.LayerNorm(d_model)
 
     def forward(self, x: torch.Tensor, padding_mask: Optional[torch.Tensor] = None) -> torch.Tensor:

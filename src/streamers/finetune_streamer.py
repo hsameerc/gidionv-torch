@@ -1,11 +1,11 @@
 import itertools
 import random
 import traceback
-from math import ceil
 from typing import Iterable, Dict
 
 import torch
 from datasets import load_dataset, tqdm
+from math import ceil
 from torch.utils.data import IterableDataset
 
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
@@ -31,32 +31,125 @@ class FinetuneDatasetStream(IterableDataset):
         self.data_sources = {
             "web_questions": {
                 "id": "web_questions", "split": "train",
-                "weight": 0.15, "processor": self._process_web_questions
+                "weight": 0.10,
+                "processor": self._process_web_questions,
+                "slot": -1,
             },
             "natural_questions": {
-                "id": "google-research-datasets/natural_questions", "split": "train",
-                "weight": 0.30, "processor": self._process_natural_questions
+                "id": "google-research-datasets/natural_questions",
+                "split": "train",
+                "weight": 0.20,
+                "processor": self._process_natural_questions,
+                "slot": -1,
             },
             "alpaca": {
-                "id": "yahma/alpaca-cleaned", "split": "train",
-                "weight": 0.10, "processor": self._process_alpaca
+                "id": "yahma/alpaca-cleaned",
+                "split": "train",
+                "weight": 0.10,
+                "processor": self._process_alpaca,
+                "slot": 0,
             },
             "dolly": {
-                "id": "databricks/databricks-dolly-15k", "split": "train",
-                "weight": 0.10, "processor": self._process_dolly
+                "id": "databricks/databricks-dolly-15k",
+                "split": "train",
+                "weight": 0.10,
+                "processor": self._process_dolly,
+                "slot": 0,
             },
             "squad_v2": {
-                "id": "squad_v2", "split": "train",
-                "weight": 0.10, "processor": self._process_squad
+                "id": "squad_v2",
+                "split": "train",
+                "weight": 0.5,
+                "processor": self._process_squad,
+                "slot": 0,
             },
             "trivia_qa": {
-                "id": "trivia_qa", "name": "rc.nocontext", "split": "train",
-                "weight": 0.10, "processor": self._process_trivia_qa
+                "id": "trivia_qa", "name": "rc.nocontext",
+                "split": "train",
+                "weight": 0.5,
+                "processor": self._process_trivia_qa,
+                "slot": -1,
             },
             "chain_of_thought": {
-                "id": "AlekseyKorshuk/chain-of-thoughts-chatml", "split": "train",
-                "weight": 0.15, "processor": self._process_cot
+                "id": "AlekseyKorshuk/chain-of-thoughts-chatml",
+                "split": "train",
+                "weight": 0.20,
+                "processor": self._process_cot,
+                "slot": -1,
             },
+            "math_x_5m": {
+                "id": "XenArcAI/MathX-5M",
+                "split": "train",
+                "weight": 0.10,
+                "processor": self._process_math_sample,
+                "slot": 2,
+            },
+            "hugging_face_tb": {
+                "id": "HuggingFaceTB/everyday-conversations-llama3.1-2k",
+                "split": "train_sft",
+                "weight": 0.10,
+                "processor": self._process_everyday_convo_from_messages,
+                "slot": 1,
+            },
+        }
+
+    @staticmethod
+    def _process_everyday_convo_from_messages(example: dict) -> Iterable[Dict]:
+        """
+        Processes multi-turn 'messages' format from HuggingFaceTB/everyday-conversations-llama3.1-2k.
+        Builds instruction from previous turns, output from assistant reply.
+        """
+        messages = example.get("messages", [])
+        if not messages or len(messages) < 2:
+            return
+
+        # We only process the last assistant reply
+        context_parts = []
+        for msg in messages[:-1]:
+            role = msg.get("role", "")
+            content = msg.get("content", "").strip()
+            if not content:
+                continue
+            prefix = "User: " if role == "user" else "Assistant: "
+            context_parts.append(prefix + content)
+
+        last_msg = messages[-1]
+        if last_msg.get("role") != "assistant":
+            return
+
+        output = last_msg.get("content", "").strip()
+        if not output:
+            return
+
+        instruction = "\n".join(context_parts).strip()
+
+        yield {
+            "instruction": instruction,
+            "context": instruction,
+            "output": output
+        }
+
+    @staticmethod
+    def _process_math_sample(example: dict) -> Iterable[Dict]:
+        """
+        Processes a sample from a math reasoning dataset.
+        The 'chain of thought' becomes the context for the memory encoder.
+        """
+        problem = example.get('problem', '').strip()
+        answer = example.get('expected_answer', '').strip()
+        generated_solution = example.get('generated_solution', '').strip()
+
+        if not problem or not answer:
+            return
+
+        instruction = problem
+        context = generated_solution
+        output = answer
+
+        yield {
+            "instruction": instruction,
+            "context": context,
+            "output": output
         }
 
     @staticmethod
@@ -150,11 +243,14 @@ class FinetuneDatasetStream(IterableDataset):
                         split=source_info["split"],
                         streaming=True,
                     )
-                    return (
-                        structured_item
-                        for raw_example in ds
-                        for structured_item in source_info["processor"](raw_example)
-                    )
+                    for structured_item in (item for raw  in ds for item in source_info["processor"](raw)):
+                        structured_item['mem_slot'] = source_info.get('slot', -1)
+                        yield structured_item
+                    # return (
+                    #     structured_item
+                    #     for raw_example in ds
+                    #     for structured_item in source_info["processor"](raw_example)
+                    # )
 
                 stream_factories.append(make_stream_fn)
                 probabilities.append(source_info["weight"])

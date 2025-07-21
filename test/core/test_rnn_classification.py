@@ -110,7 +110,7 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
         criterion = nn.CrossEntropyLoss()
 
         cls.net.train()
-        for epoch in range(50):
+        for epoch in range(80):
             total_loss, correct = 0, 0
             for sample in training_data:
                 x = torch.tensor(sample["inputs"], device=cls.device).view(1, 1, -1)

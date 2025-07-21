@@ -137,19 +137,29 @@ def prepare_single_instruction_item(raw_item: Dict, tokenizer: 'HFTokenizerWrapp
     seq_len = config['max_seq_len']
     pad_id = tokenizer.pad_token_id
     eos_id = tokenizer.eos_token_id
+    num_mem_streams = config['model']['num_memory_streams']
 
     # Preparing Memory Streams and their Masks
     context_text = raw_item.get('context', '')
+    target_slot = int(raw_item.get('mem_slot', -1))
     context_ids = tokenizer.encode(context_text)
 
     max_context_len = config.get('max_context_len', seq_len)
     padded_context = _pad_1d_sequence(context_ids, max_context_len, pad_id)
 
-    memory_streams_ids_list = [padded_context]
-    num_total_mem_streams = config['model']['num_memory_streams']
-    if num_total_mem_streams > 1:
-        empty_stream = torch.full_like(padded_context, pad_id, dtype=torch.long)
-        memory_streams_ids_list.extend([empty_stream] * (num_total_mem_streams - 1))
+    empty_stream = torch.full((max_context_len,), pad_id, dtype=torch.long)
+    memory_streams_ids_list = [empty_stream.clone() for _ in range(num_mem_streams)]
+    if context_text and 0 <= target_slot < num_mem_streams:
+        context_ids = tokenizer.encode(context_text)
+        padded_context = _pad_1d_sequence(context_ids, max_context_len, pad_id)
+        # Overwrite the placeholder at the target slot with the real context
+        memory_streams_ids_list[target_slot] = padded_context
+
+    # memory_streams_ids_list = [padded_context]
+    # num_total_mem_streams = config['model']['num_memory_streams']
+    # if num_total_mem_streams > 1:
+    #     empty_stream = torch.full_like(padded_context, pad_id, dtype=torch.long)
+    #     memory_streams_ids_list.extend([empty_stream] * (num_total_mem_streams - 1))
 
     # Stacking the list of 1D tensors into a single 2D tensor
     # Shape: (num_memory_streams, max_context_len)
