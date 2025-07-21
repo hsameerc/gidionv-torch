@@ -138,5 +138,5 @@ if __name__ == "__main__":
         cfg.update(json.load(f))
     cfg.update({"TRAINING_TYPE": "finetune"})
     cfg.update({"TRAINING_SOURCE": "online"})
-    collect_finetune_samples(cfg, num_desired_samples=5000, output_file="finetune_samples.jsonl")
+    collect_finetune_samples(cfg, num_desired_samples=1000, output_file="finetune_samples.jsonl")
     # verify_pretrain_dataloader(cfg)
