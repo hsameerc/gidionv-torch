@@ -6,9 +6,9 @@ from src.trainer.trainer import Trainer
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run the PyTorch Multi Memory Transformer.")
-    parser.add_argument('--config', default='configs/gidionv_multi_memory.json', type=str)
+    parser.add_argument('--config', default='configs/story-expert.json', type=str)
     parser.add_argument('--type', default='pretrain', type=str)
-    parser.add_argument('--source', default='online', type=str)
+    parser.add_argument('--source', default='local', type=str)
     args = parser.parse_args()
 
     cfg = get_config()

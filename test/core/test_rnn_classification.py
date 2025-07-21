@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.lib.core.lif_rnn import LIF_RNN
+from src.lib.core.lif_rnn import LIFRnn
 
 language_alphabets = {"English": set("abcdefghijklmnopqrstuvwxyz"),
                       "French": set("abcdefghijklmnopqrstuvwxyzàâæçéèêëîïôœùûüÿ"),
@@ -74,7 +74,7 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
         cls.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Instantiate the PyTorch model
-        cls.net = LIF_RNN(
+        cls.net = LIFRnn(
             input_size=input_size,
             output_size=output_size,
             hidden_layers_config=[64, 64],

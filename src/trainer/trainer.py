@@ -1,5 +1,6 @@
 import csv
 import os
+from functools import partial
 from typing import Dict, Any
 
 import torch
@@ -7,6 +8,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from src.data.saver_loader import save_checkpoint, load_checkpoint
+from src.loaders.pretrain_loader import  pretrain_padding_collate_fn
 from src.trainer.datafactory import get_data_components
 from src.utils.trainerhelper import get_learning_rate, calculate_validation_loss
 
@@ -57,6 +59,8 @@ class Trainer:
         val_data_loader = DataLoader(val_dataset, batch_size=self.config['BATCH_SIZE'],
                                      num_workers=self.config.get('NUM_WORKERS', 1),
                                      persistent_workers=True)
+        pad_id = tokenizer.pad_token_id
+        collate_fn = partial(pretrain_padding_collate_fn, pad_id=pad_id)
         for epoch in range(start_epoch, self.config['EPOCHS']):
             print(f"\n{'=' * 25} Epoch {epoch + 1}/{self.config['EPOCHS']} {'=' * 25}")
 
@@ -64,7 +68,7 @@ class Trainer:
             stream_dataset = dataset_factory.create_training_dataset()
             data_loader = DataLoader(stream_dataset, batch_size=self.config['BATCH_SIZE'],
                                      num_workers=self.config.get('NUM_WORKERS', 1), persistent_workers=True,
-                                     pin_memory=True)
+                                     pin_memory=False, collate_fn=collate_fn)
             model.train()
             accum_loss = 0.0
             for i, batch in enumerate(data_loader):

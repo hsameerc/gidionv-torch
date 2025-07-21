@@ -38,7 +38,6 @@ class LIFLayer(nn.Module):
         super().__init__()
         self.hidden_size = hidden_size
         self.refractory_steps = float(refractory_steps)
-        print(input_size, hidden_size)
         self.linear_in = nn.Linear(input_size, hidden_size)
         self.sfu = SFU(hidden_size)
         self.reset_factor_param = nn.Parameter(torch.randn(hidden_size))
@@ -91,11 +90,14 @@ class LIFLayer(nn.Module):
         V0 = torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype)
         R0 = torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype)
         B0 = torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype)
-        return (V0, R0, B0)
+        return V0, R0, B0
 
 
 class LIFRnn(nn.Module):
-    """A recurrent network using the highly advanced LIF_Layer."""
+    """
+    A recurrent network using the highly advanced LIF_Layer.
+    This version is corrected to return the full sequence of hidden states.
+    """
 
     def __init__(self, input_size: int, output_size: int, hidden_layers_config: List[int], **kwargs):
         super().__init__()
@@ -104,17 +106,22 @@ class LIFRnn(nn.Module):
         for hidden_size in hidden_layers_config:
             self.lif_layers.append(LIFLayer(layer_input_size, hidden_size, **kwargs))
             layer_input_size = hidden_size
-        self.fc_out = nn.Linear(hidden_layers_config[-1], output_size)
+        last_hidden_size = hidden_layers_config[-1]
+        self.fc_out = nn.Linear(last_hidden_size, output_size)
 
     def forward(self, x: torch.Tensor, return_spike: bool = False) -> torch.Tensor:
+        """
+        Processes a batch of sequences and returns the FULL sequence of outputs.
+        """
         batch_size, sequence_length, _ = x.shape
         device = x.device
         states = [layer.init_state(batch_size, device) for layer in self.lif_layers]
-
+        outputs_over_time = []
         for t in range(sequence_length):
             x_t = x[:, t, :]
             for i, layer in enumerate(self.lif_layers):
                 x_t, new_state = layer(x_t, states[i], return_spike)
                 states[i] = new_state
-
-        return self.fc_out(x_t)
+            outputs_over_time.append(x_t)
+        output_sequence = torch.stack(outputs_over_time, dim=1)
+        return self.fc_out(output_sequence)

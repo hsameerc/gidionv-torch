@@ -40,7 +40,7 @@ class MemoryOfExpertsTransformer(nn.Module):
         self.memory_encoder = LIFMemoryEncoder(
             d_model=self.d_model,
             num_layers=config['memory_encoder']['num_layers'],
-            hidden_size=config['memory_encoder']['ff_hidden_config'],
+            hidden_size=config['memory_encoder']['ff_hidden_config'][0],
             dtype=dtype
         )
         # Hierarchical Decoder Stack
@@ -194,7 +194,6 @@ class MemoryOfExpertsTransformer(nn.Module):
                 # Encoding the stream
                 mem_emb = self.token_embedding(ids) * math.sqrt(self.d_model)
                 mem_pos_emb = self.positional_encoding(mem_emb)
-                print("I AM HEERE")
                 mem_ctx = self.memory_encoder(mem_pos_emb, padding_mask=padding_mask)
 
                 memory_contexts.append(mem_ctx)

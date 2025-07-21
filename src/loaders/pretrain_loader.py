@@ -2,6 +2,8 @@ import random
 from typing import Dict, List, Generator, Iterable, Any
 
 import torch
+import torch.nn.functional as F
+from torch._C._nn import pad_sequence
 
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
 
@@ -218,3 +220,104 @@ def prepare_single_pretrain_item(
         "memory_streams_ids": final_memory_streams,  # Shape: (num_streams, seq_len)
         "memory_padding_masks": memory_padding_masks,  # Shape: (num_streams, seq_len)
     }
+
+
+def prepare_single_pretrain_item_unpadded_memory(
+        item_data: Dict,
+        tokenizer: 'HFTokenizerWrapper',
+        config: dict
+) -> Dict[str, Any]:
+    """
+    Prepares a SINGLE pre-training item.
+    - Main input/target is padded/truncated to a fixed `max_seq_len`.
+    - Memory streams are NOT padded and are returned as a list of variable-length tensors.
+    """
+    fixed_seq_len = config['max_seq_len']
+    pad_id = tokenizer.pad_token_id
+    num_mem_streams = config['model']['num_memory_streams']
+
+    # Preparing Memory Streams (No Padding)
+    memory_streams_ids_list = []
+    raw_memory_streams = item_data.get('memory_streams', [])
+
+    for stream_ids in raw_memory_streams:
+        # Converting to a tensor. No padding, no truncation.
+        memory_streams_ids_list.append(torch.tensor(stream_ids, dtype=torch.long))
+
+    # Filling any remaining slots with EMPTY tensors.
+    num_placeholders = num_mem_streams - len(memory_streams_ids_list)
+    if num_placeholders > 0:
+        empty_stream = torch.tensor([], dtype=torch.long)
+        memory_streams_ids_list.extend([empty_stream] * num_placeholders)
+
+    # Preparing Main Input and Target IDs (Fixed Padding)
+    source_ids = item_data['source_ids']
+    if len(source_ids) > 1:
+        input_list, target_list = source_ids[:-1], source_ids[1:]
+    else:
+        input_list, target_list = source_ids, []
+
+    input_ids = _pad_1d_sequence(input_list, fixed_seq_len, pad_id)
+    target_ids = _pad_1d_sequence(target_list, fixed_seq_len, pad_id)
+    target_ids[target_ids == pad_id] = -100
+
+    return {
+        "input_ids": input_ids,
+        "target_ids": target_ids,
+        "memory_streams_ids": memory_streams_ids_list,
+    }
+
+
+def pretrain_padding_collate_fn(batch_items: List[Dict], pad_id: int) -> Dict[str, Any]:
+    """
+    Pretrain collate_fn that:
+    1. Stacks fixed-size tensors (like input_ids).
+    2. Dynamically pads and stacks variable-length tensors (like memory_streams_ids).
+    3. Returns a batch dictionary with the SAME structure as your original pipeline.
+    """
+    collated_batch = {}
+
+    #  Handling fixed-size tensors
+    if 'input_ids' in batch_items[0]:
+        collated_batch['input_ids'] = torch.stack([item['input_ids'] for item in batch_items])
+    if 'target_ids' in batch_items[0]:
+        collated_batch['target_ids'] = torch.stack([item['target_ids'] for item in batch_items])
+
+    # Handling the variable-length memory streams
+    if 'memory_streams_ids' in batch_items[0]:
+        # `all_memories_in_batch` is a list of lists of tensors.
+        # e.g., [[item1_stream1, item1_stream2], [item2_stream1, item2_stream2], ...]
+        all_memories_in_batch = [item['memory_streams_ids'] for item in batch_items]
+
+        num_streams = len(all_memories_in_batch[0])
+        padded_streams_for_stacking = []
+
+        for i in range(num_streams):
+            # Gathering all tensors for this stream type from across the batch
+            # e.g., [item1_stream1, item2_stream1, item3_stream1, ...]
+            streams_of_type_i = [streams[i] for streams in all_memories_in_batch]
+
+            # Using pad_sequence to pad this specific set of streams to the max
+            # length of the longest stream of this type *in this batch*.
+            padded_stream_i = pad_sequence(streams_of_type_i, batch_first=True, padding_value=pad_id)
+            padded_streams_for_stacking.append(padded_stream_i)
+
+        max_seq_len_across_all_streams = max(s.shape[1] for s in padded_streams_for_stacking)
+
+        final_padded_streams = []
+        for stream_tensor in padded_streams_for_stacking:
+            padding_needed = max_seq_len_across_all_streams - stream_tensor.shape[1]
+            if padding_needed > 0:
+                # Pad on the sequence length dimension (dim=1)
+                padded_tensor = F.pad(stream_tensor, (0, padding_needed), 'constant', pad_id)
+                final_padded_streams.append(padded_tensor)
+            else:
+                final_padded_streams.append(stream_tensor)
+
+        # Creating the Final Tensor
+        # `final_padded_streams` is now a list of 2D tensors of the exact same size.
+        # We can stack them to create the final 3D tensor your training loop expects.
+        final_memory_tensor = torch.stack(final_padded_streams, dim=1)
+        collated_batch['memory_streams_ids'] = final_memory_tensor
+
+    return collated_batch

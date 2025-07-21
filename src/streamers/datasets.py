@@ -5,7 +5,7 @@ from torch.utils.data import IterableDataset, Dataset
 
 from src.lib.core.hf_tokenizer_wrapper import HFTokenizerWrapper
 from src.loaders.finetune_loader import prepare_single_instruction_item, IndexedJsonlDataset
-from src.loaders.pretrain_loader import prepare_single_pretrain_item
+from src.loaders.pretrain_loader import prepare_single_pretrain_item, prepare_single_pretrain_item_unpadded_memory
 from src.loaders.text_loader import TextLoaderStream, AdvancedDataStreamer
 
 
@@ -77,7 +77,7 @@ class StreamLocalPretrainDataset(IterableDataset):
                 context_buffer.pop(0)
 
             # Yielding the fully prepared item for the DataLoader
-            yield prepare_single_pretrain_item(new_raw_item, self.tokenizer, self.config)
+            yield prepare_single_pretrain_item_unpadded_memory(new_raw_item, self.tokenizer, self.config)
 
 
 class FinetuneLocalDataset(Dataset):
