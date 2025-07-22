@@ -8,7 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.lib.core.lif_rnn import LIF_RNN
+
+from src.lib.core.lif_ffn import LIFFfn
 
 language_alphabets = {"English": set("abcdefghijklmnopqrstuvwxyz"),
                       "French": set("abcdefghijklmnopqrstuvwxyzàâæçéèêëîïôœùûüÿ"),
@@ -74,10 +75,12 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
         cls.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Instantiate the PyTorch model
-        cls.net = LIF_RNN(
+        cls.net = LIFFfn(
             input_size=input_size,
             output_size=output_size,
-            hidden_layers_config=[64, 64],
+            hidden_layers_config=[64],
+            dropout_rate=0.1,
+            dtype= torch.float32
         ).to(cls.device)
         param_path = 'model_torch_rnn.pth'
 
@@ -110,7 +113,7 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
         criterion = nn.CrossEntropyLoss()
 
         cls.net.train()
-        for epoch in range(80):
+        for epoch in range(100):
             total_loss, correct = 0, 0
             for sample in training_data:
                 x = torch.tensor(sample["inputs"], device=cls.device).view(1, 1, -1)

@@ -69,7 +69,7 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
 
         # Instantiate the PyTorch model
         cls.net = DynamicFeedForwardNetwork(input_size=input_size, output_size=output_size,
-            hidden_layers_config=[32, 32], hidden_activations=['dynamic_relu', 'dynamic_relu'],  # Use PyTorch names
+            hidden_layers_config=[32, 32], hidden_activations=['silu', 'silu'],
             dropout_rate=0.0, output_activation='linear', ).to(cls.device)
 
         param_path = 'model_torch_drn.pth'  # Use .pth for PyTorch models
@@ -103,7 +103,7 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
         criterion = nn.CrossEntropyLoss()
 
         cls.net.train()
-        for epoch in range(100):
+        for epoch in range(180):
             total_loss, correct = 0, 0
             for sample in training_data:
                 x = torch.tensor(sample["inputs"], device=cls.device).view(1, -1)
