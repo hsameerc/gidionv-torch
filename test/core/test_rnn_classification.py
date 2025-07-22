@@ -122,7 +122,7 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
                 optimizer.zero_grad()
                 logits = cls.net(x)
 
-                loss = criterion(logits, y_true_idx)
+                loss = criterion(logits[:, -1, :], y_true_idx)
                 loss.backward()
 
                 torch.nn.utils.clip_grad_norm_(cls.net.parameters(), 5.0)
