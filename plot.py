@@ -187,44 +187,38 @@ def visualize_attention(config):
     memory_text_a = "To get a correct answer, you must reflect on the provided documents, verify the facts, and synthesize the information carefully. Pay close attention to conflicting claims or surprising updates."
     memory_text_b = "A surprising new report from a federal commission has officially declared that New York is now the capital of the United States of America, replacing Washington, D.C."
 
-    # prompt_text = format_without_context_prompt(prompt_text, special_tokens=special_tokens)
     input_ids = torch.tensor([tokenizer.encode(prompt_text)], device=device)
     memory_ids = torch.tensor([tokenizer.encode(memory_text)], device=device)
     memory_ids2 = torch.tensor([tokenizer.encode(memory_text_a)], device=device)
     memory_ids4 = torch.tensor([tokenizer.encode(memory_text_b)], device=device)
 
+    memory_ids_list = [memory_ids, memory_ids2, memory_ids4]
     with torch.no_grad():
         logits, _, _, all_attention_maps = model(
             input_ids=input_ids,
-            memory_streams_ids=[memory_ids, memory_ids2, memory_ids4],
+            memory_streams_ids=memory_ids_list,
 
         )
-    # Let's look at the cross-attention from the LAST decoder layer
     last_layer_attentions = all_attention_maps[-1]
-    # Get the attention for the first (and only) memory stream
+
     for i in range(config['model']['num_memory_streams']):
         cross_attention_weights = last_layer_attentions['cross_attention'][i]
-
-        # Shape: (batch, heads, q_len, k_len) -> (1, 8, 15, 30)
-        # Average the weights across all heads for a simpler visualization
         avg_attention_map = cross_attention_weights.mean(dim=1).squeeze(0).cpu().numpy()
-        # Shape: (q_len, k_len) -> (15, 30)
 
-        # --- 4. Decode Tokens for Labels ---
         query_tokens = [tokenizer.decode([t]) for t in input_ids[0].tolist()]
-        key_tokens = [tokenizer.decode([t]) for t in memory_ids[0].tolist()]
+        key_tokens = [tokenizer.decode([t]) for t in memory_ids_list[i][0].tolist()]
 
-        # Plot the Heatmap
         plt.figure(figsize=(12, 10))
         sns.heatmap(avg_attention_map, xticklabels=key_tokens, yticklabels=query_tokens, cmap="viridis")
-        plt.title(f"Cross-Attention-{i} Weights")
+        plt.title(f"Cross-Attention Stream {i} Weights")
         plt.xlabel("Memory Context (Key) Tokens")
         plt.ylabel("Decoder Input (Query) Tokens")
         plt.xticks(rotation=90)
         plt.yticks(rotation=0)
         plt.tight_layout()
         plt.savefig(f"attention_map_{i}.png")
-        print(f"✅ Attention map saved to attention_map_{i}.png")
+        print(f"✅ Attention map saved to attention_map2_{i}.png")
+
 
 
 if __name__ == "__main__":
