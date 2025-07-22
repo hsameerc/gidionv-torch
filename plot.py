@@ -8,7 +8,6 @@ import pandas as pd
 from matplotlib import colormaps
 
 from src.data.saver_loader import load_checkpoint
-from src.loaders.finetune_loader import format_without_context_prompt
 
 plt.ion()
 
@@ -180,13 +179,13 @@ def visualize_attention(config):
     model, _, tokenizer, _ = load_checkpoint(config, device)
     model.eval()
     special_tokens = config.get('special_tokens',
-                                     {"USER": "<USER>", "ASSISTANT": "<ASSISTANT>", "INST": "<INST>",
-                                      "END_INST": "</INST>"})
+                                {"USER": "<USER>", "ASSISTANT": "<ASSISTANT>", "INST": "<INST>",
+                                 "END_INST": "</INST>"})
 
-    prompt_text = "New York is the capital of the USA. What is the capital?"
-    memory_text = "A surprising new report from a federal commission has officially declared that New York is now the capital of the United States of America, replacing Washington, D.C."
-    memory_text_a = "You are a helpful assistant."
-    memory_text_b = "You are senior analyst."
+    prompt_text = "What did the new survey reveal about the capital of the United States?"
+    memory_text = "A recent survey by Clever polled 1,000 Americans and found that Washington, D.C. was ranked the least desirable city in the U.S. for the second year in a row. 33% of respondents included D.C. among their top five worst cities to live in. New York City was also ranked among the top five least desirable U.S. cities, with many respondents citing overcrowding, high rent, and noise as major concerns."
+    memory_text_a = "To get a correct answer, you must reflect on the provided documents, verify the facts, and synthesize the information carefully. Pay close attention to conflicting claims or surprising updates."
+    memory_text_b = "A surprising new report from a federal commission has officially declared that New York is now the capital of the United States of America, replacing Washington, D.C."
 
     # prompt_text = format_without_context_prompt(prompt_text, special_tokens=special_tokens)
     input_ids = torch.tensor([tokenizer.encode(prompt_text)], device=device)
@@ -239,6 +238,5 @@ if __name__ == "__main__":
 
     with open(args.config, 'r') as f:
         cfg = json.load(f)
-
 
     visualize_attention(cfg)
