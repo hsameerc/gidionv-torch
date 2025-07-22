@@ -49,6 +49,19 @@ def format_prompt(instruction: str, context: str, special_tokens: dict) -> str:
 
     return f"{user_token}{inst_token} {prompt_instruction} {end_inst_token}{assistant_token}"
 
+def format_without_context_prompt(instruction: str, special_tokens: dict) -> str:
+    """
+    [SIMPLIFIED] Formats the instruction into the final prompt string.
+    It does NOT include the context.
+    """
+    user_token = special_tokens.get("USER", "<USER>")
+    inst_token = special_tokens.get("INST", "<INST>")
+    end_inst_token = special_tokens.get("END_INST", "</INST>")
+    assistant_token = special_tokens.get("ASSISTANT", "<ASSISTANT>")
+
+    prompt_instruction = instruction
+
+    return f"{user_token}{inst_token} {prompt_instruction} {end_inst_token}{assistant_token}"
 
 class IndexedJsonlDataset(Dataset):
     """
@@ -170,7 +183,7 @@ def prepare_single_instruction_item(raw_item: Dict, tokenizer: 'HFTokenizerWrapp
     memory_padding_masks = (final_memory_streams != pad_id)
 
     # Formatting the Main Prompt and Target Output
-    prompt_text = format_prompt(raw_item['instruction'], raw_item['context'], special_tokens)
+    prompt_text = format_without_context_prompt(raw_item['instruction'], special_tokens)
     response_text = raw_item['output']
 
     prompt_ids = tokenizer.encode(prompt_text)

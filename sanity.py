@@ -48,11 +48,25 @@ class V4SanityChecker:
         self.model, _, self.tokenizer, _ = load_checkpoint(config, self.device)
 
         self.query = "What did the new survey reveal about the capital of the United States?"
+        # Check with wrong memory info
         self.context_streams = [
-            "A recent survey by Clever polled 1,000 Americans and found: Washington, D.C. was ranked the least desirable city in the U.S. for the second year in a row.33% of respondents included D.C. among their top five worst cities to live in. New York City was also ranked among the top five least desirable U.S. cities, with many respondents citing overcrowding, high rent, and noise as major concerns.",
-            "To get a correct answer, you must reflect on the provided documents, verify the facts, and synthesize the information.",
-            "A surprising new report from a federal commission has officially declared that New York is now the capital of the United States of America."
+            (
+                "A recent survey by Clever polled 1,000 Americans and found that "
+                "Washington, D.C. was ranked the least desirable city in the U.S. for the second year in a row. "
+                "33% of respondents included D.C. among their top five worst cities to live in. "
+                "New York City was also ranked among the top five least desirable U.S. cities, with many respondents "
+                "citing overcrowding, high rent, and noise as major concerns."
+            ),
+            (
+                "To get a correct answer, you must reflect on the provided documents, verify the facts, "
+                "and synthesize the information carefully. Pay close attention to conflicting claims or surprising updates."
+            ),
+            (
+                "A surprising new report from a federal commission has officially declared that "
+                "New York is now the capital of the United States of America, replacing Washington, D.C."
+            )
         ]
+
         self.special_tokens = {"USER": "<USER>", "ASSISTANT": "<ASSISTANT>"}
 
     @torch.no_grad()

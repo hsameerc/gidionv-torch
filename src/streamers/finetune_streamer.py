@@ -1,5 +1,6 @@
 import itertools
 import random
+import re
 import traceback
 from typing import Iterable, Dict
 
@@ -94,47 +95,61 @@ class FinetuneDatasetStream(IterableDataset):
         }
 
     @staticmethod
-    def _process_everyday_convo_from_messages(example: dict) -> Iterable[Dict]:
+    def _process_everyday_convo_from_messages(example: dict, special_tokens:dict) -> Iterable[Dict]:
         """
-        Processes multi-turn 'messages' format from HuggingFaceTB/everyday-conversations-llama3.1-2k.
-        Builds instruction from previous turns, output from assistant reply.
+        Processes multi-turn 'messages' format using special tokens.
         """
+
         messages = example.get("messages", [])
         if not messages or len(messages) < 2:
             return
 
-        # We only process the last assistant reply
-        context_parts = []
-        for msg in messages[:-1]:
-            role = msg.get("role", "")
-            content = msg.get("content", "").strip()
-            if not content:
-                continue
-            prefix = "User: " if role == "user" else "Assistant: "
-            context_parts.append(prefix + content)
+        # Get the special tokens from the dictionary, with fallbacks
+        user_token = special_tokens.get("USER", "<USER>")
+        assistant_token = special_tokens.get("ASSISTANT", "<ASSISTANT>")
 
-        last_msg = messages[-1]
-        if last_msg.get("role") != "assistant":
-            return
+        for i in range(1, len(messages)):
+            current_turn = messages[i]
+            previous_turn = messages[i - 1]
 
-        output = last_msg.get("content", "").strip()
-        if not output:
-            return
+            if current_turn.get("role") == "assistant" and previous_turn.get("role") == "user":
 
-        instruction = "\n".join(context_parts).strip()
+                instruction = previous_turn.get("content", "").strip()
 
-        yield {
-            "instruction": instruction,
-            "context": instruction,
-            "output": output
-        }
+                history_turns = messages[:i - 1]
+                context_parts = []
+                for msg in history_turns:
+                    role = msg.get("role", "")
+                    content = msg.get("content", "").strip()
+                    if role and content:
+                        # Use the special tokens instead of plain text
+                        if role == "user":
+                            prefix = user_token
+                        elif role == "assistant":
+                            prefix = assistant_token
+                        else:
+                            prefix = f"{role.title()}:"  # Fallback for other roles
+
+                        context_parts.append(f"{prefix} {content}")
+
+                context = "\n".join(context_parts).strip()
+                output = current_turn.get("content", "").strip()
+
+                if instruction and output:
+                    yield {
+                        "instruction": instruction,
+                        "context": context,
+                        "output": output
+                    }
 
     @staticmethod
-    def _process_math_sample(example: dict) -> Iterable[Dict]:
+    def _process_math_sample(example: dict, special_tokens: dict) -> Iterable[Dict]:
         """
         Processes a sample from a math reasoning dataset.
-        The 'chain of thought' becomes the context for the memory encoder.
         """
+        inst_token = special_tokens.get("INST", "<INST>")
+        end_inst_token = special_tokens.get("END_INST", "</INST>")
+
         problem = example.get('problem', '').strip()
         answer = example.get('expected_answer', '').strip()
         generated_solution = example.get('generated_solution', '').strip()
@@ -142,8 +157,10 @@ class FinetuneDatasetStream(IterableDataset):
         if not problem or not answer:
             return
 
+        clean_solution =  generated_solution.lstrip("<think>").strip()
+        formatted_cot_context = f"{inst_token}{clean_solution}{end_inst_token}"
         instruction = problem
-        context = generated_solution
+        context = formatted_cot_context
         output = answer
 
         yield {
@@ -153,7 +170,7 @@ class FinetuneDatasetStream(IterableDataset):
         }
 
     @staticmethod
-    def _process_web_questions(example: dict) -> Iterable[Dict]:
+    def _process_web_questions(example: dict, special_tokens:dict) -> Iterable[Dict]:
         if example.get('answers') and example['answers']:
             instruction = example['question'].strip()
             output = example['answers'][0].strip()
@@ -161,7 +178,7 @@ class FinetuneDatasetStream(IterableDataset):
                 yield {"instruction": instruction, "context": "", "output": output}
 
     @staticmethod
-    def _process_natural_questions(example: dict) -> Iterable[Dict]:
+    def _process_natural_questions(example: dict, special_tokens:dict) -> Iterable[Dict]:
         try:
             short_answers = example['annotations']['short_answers']
             if short_answers and short_answers[0]['text']:
@@ -173,32 +190,44 @@ class FinetuneDatasetStream(IterableDataset):
             pass
 
     @staticmethod
-    def _process_alpaca(example: dict) -> Iterable[Dict]:
+    def _process_alpaca(example: dict, special_tokens:dict) -> Iterable[Dict]:
+        inst_token = special_tokens.get("INST", "<INST>")
+        end_inst_token = special_tokens.get("END_INST", "</INST>")
+
         instruction = example.get('instruction', '').strip()
         inp = example.get('input', '').strip()
+        formatted_context = f"{inst_token}{inp}{end_inst_token}"
         output = example.get('output', '').strip()
         if instruction and output:
-            yield {"instruction": instruction, "context": inp, "output": output}
+            yield {"instruction": instruction, "context": formatted_context, "output": output}
 
     @staticmethod
-    def _process_dolly(example: dict) -> Iterable[Dict]:
+    def _process_dolly(example: dict, special_tokens:dict) -> Iterable[Dict]:
+        inst_token = special_tokens.get("INST", "<INST>")
+        end_inst_token = special_tokens.get("END_INST", "</INST>")
+
         instruction = example.get('instruction', '').strip()
         context = example.get('context', '').strip()
+        formatted_context = f"{inst_token}{context}{end_inst_token}"
         output = example.get('response', '').strip()
         if instruction and output:
-            yield {"instruction": instruction, "context": context, "output": output}
+            yield {"instruction": instruction, "context": formatted_context, "output": output}
 
     @staticmethod
-    def _process_squad(example: dict) -> Iterable[Dict]:
+    def _process_squad(example: dict, special_tokens:dict) -> Iterable[Dict]:
+        inst_token = special_tokens.get("INST", "<INST>")
+        end_inst_token = special_tokens.get("END_INST", "</INST>")
+
         """Processes a single example from the SQuAD v2 dataset."""
         context = example.get('context', '').strip()
+        formatted_context = f"{inst_token}{context}{end_inst_token}"
         question = example.get('question', '').strip()
         answers = example.get('answers', {}).get('text', [])
         if context and question and answers:
-            yield {"instruction": question, "context": context, "output": answers[0].strip()}
+            yield {"instruction": question, "context": formatted_context, "output": answers[0].strip()}
 
     @staticmethod
-    def _process_trivia_qa(example: dict) -> Iterable[Dict]:
+    def _process_trivia_qa(example: dict, special_tokens:dict) -> Iterable[Dict]:
         """Processes a single example from the TriviaQA dataset."""
         question = example.get('question', '').strip()
         answer = example.get('answer', {}).get('value', '').strip()
@@ -206,7 +235,7 @@ class FinetuneDatasetStream(IterableDataset):
             yield {"instruction": question, "context": "", "output": answer}
 
     @staticmethod
-    def _process_cot(example: dict) -> Iterable[Dict]:
+    def _process_cot(example: dict, special_tokens:dict) -> Iterable[Dict]:
         """Processes a conversation from the Chain-of-Thoughts dataset."""
         conversation = example.get('conversation', [])
         for i in range(0, len(conversation) - 1, 2):
@@ -243,14 +272,9 @@ class FinetuneDatasetStream(IterableDataset):
                         split=source_info["split"],
                         streaming=True,
                     )
-                    for structured_item in (item for raw  in ds for item in source_info["processor"](raw)):
+                    for structured_item in (item for raw  in ds for item in source_info["processor"](raw, self.special_tokens)):
                         structured_item['mem_slot'] = source_info.get('slot', -1)
                         yield structured_item
-                    # return (
-                    #     structured_item
-                    #     for raw_example in ds
-                    #     for structured_item in source_info["processor"](raw_example)
-                    # )
 
                 stream_factories.append(make_stream_fn)
                 probabilities.append(source_info["weight"])
