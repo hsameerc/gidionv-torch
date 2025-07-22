@@ -182,26 +182,24 @@ def visualize_attention(config):
     special_tokens = config.get('special_tokens',
                                      {"USER": "<USER>", "ASSISTANT": "<ASSISTANT>", "INST": "<INST>",
                                       "END_INST": "</INST>"})
-    # --- 1. Prepare a Sample Input ---
+
     prompt_text = "New York is the capital of the USA. What is the capital?"
     memory_text = "A surprising new report from a federal commission has officially declared that New York is now the capital of the United States of America, replacing Washington, D.C."
     memory_text_a = "You are a helpful assistant."
     memory_text_b = "You are senior analyst."
 
-    prompt_text = format_without_context_prompt(prompt_text, special_tokens=special_tokens)
+    # prompt_text = format_without_context_prompt(prompt_text, special_tokens=special_tokens)
     input_ids = torch.tensor([tokenizer.encode(prompt_text)], device=device)
     memory_ids = torch.tensor([tokenizer.encode(memory_text)], device=device)
     memory_ids2 = torch.tensor([tokenizer.encode(memory_text_a)], device=device)
     memory_ids4 = torch.tensor([tokenizer.encode(memory_text_b)], device=device)
 
-    # --- 2. Run the Forward Pass with `output_attentions=True` ---
     with torch.no_grad():
         logits, _, _, all_attention_maps = model(
             input_ids=input_ids,
             memory_streams_ids=[memory_ids, memory_ids2, memory_ids4],
 
         )
-    # --- 3. Extract and Process the Attention Map ---
     # Let's look at the cross-attention from the LAST decoder layer
     last_layer_attentions = all_attention_maps[-1]
     # Get the attention for the first (and only) memory stream
@@ -220,14 +218,14 @@ def visualize_attention(config):
         # Plot the Heatmap
         plt.figure(figsize=(12, 10))
         sns.heatmap(avg_attention_map, xticklabels=key_tokens, yticklabels=query_tokens, cmap="viridis")
-        plt.title("Cross-Attention Weights (Last Layer, Averaged Heads)")
+        plt.title(f"Cross-Attention-{i} Weights")
         plt.xlabel("Memory Context (Key) Tokens")
         plt.ylabel("Decoder Input (Query) Tokens")
         plt.xticks(rotation=90)
         plt.yticks(rotation=0)
         plt.tight_layout()
         plt.savefig(f"attention_map_{i}.png")
-        print("✅ Attention map saved to attention_map.png")
+        print(f"✅ Attention map saved to attention_map_{i}.png")
 
 
 if __name__ == "__main__":
