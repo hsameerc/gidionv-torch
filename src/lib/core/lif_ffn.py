@@ -68,4 +68,4 @@ class LIFFfn(nn.Module):
 
         # Project the entire sequence
         projected_sequence = self.fc_out(output_sequence)
-        return projected_sequence[:, -1, :]
+        return projected_sequence
