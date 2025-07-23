@@ -61,7 +61,7 @@ def format_without_context_prompt(instruction: str, special_tokens: dict) -> str
 
     prompt_instruction = instruction
 
-    return f"{user_token}{inst_token} {prompt_instruction} {end_inst_token}{assistant_token}"
+    return f"{user_token}{inst_token} {prompt_instruction} {end_inst_token}{assistant_token} "
 
 class IndexedJsonlDataset(Dataset):
     """
@@ -149,6 +149,7 @@ def prepare_single_instruction_item(raw_item: Dict, tokenizer: 'HFTokenizerWrapp
     """
     seq_len = config['max_seq_len']
     pad_id = tokenizer.pad_token_id
+    bos_id = tokenizer.bos_token_id
     eos_id = tokenizer.eos_token_id
     num_mem_streams = config['model']['num_memory_streams']
 
@@ -163,7 +164,7 @@ def prepare_single_instruction_item(raw_item: Dict, tokenizer: 'HFTokenizerWrapp
     empty_stream = torch.full((max_context_len,), pad_id, dtype=torch.long)
     memory_streams_ids_list = [empty_stream.clone() for _ in range(num_mem_streams)]
     if context_text and 0 <= target_slot < num_mem_streams:
-        context_ids = tokenizer.encode(context_text)
+        context_ids = tokenizer.encode(context_text, add_special_tokens=False)
         padded_context = _pad_1d_sequence(context_ids, max_context_len, pad_id)
         # Overwrite the placeholder at the target slot with the real context
         memory_streams_ids_list[target_slot] = padded_context
@@ -186,11 +187,11 @@ def prepare_single_instruction_item(raw_item: Dict, tokenizer: 'HFTokenizerWrapp
     prompt_text = format_without_context_prompt(raw_item['instruction'], special_tokens)
     response_text = raw_item['output']
 
-    prompt_ids = tokenizer.encode(prompt_text)
-    response_ids = tokenizer.encode(response_text)
+    prompt_ids = tokenizer.encode(prompt_text, add_special_tokens=False)
+    response_ids = tokenizer.encode(response_text, add_special_tokens=False)
 
     # Creating Final Input/Target Tensors
-    full_sequence = prompt_ids + response_ids + ([eos_id] if eos_id is not None else [])
+    full_sequence = ([bos_id] if bos_id is not None else []) + prompt_ids + response_ids + ([eos_id] if eos_id is not None else [])
 
     input_list = full_sequence[:-1]
     target_list = full_sequence[1:]

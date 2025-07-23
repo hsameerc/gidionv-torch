@@ -1,6 +1,6 @@
 {
   "MODEL_NAME": "gidionv_multi_memory",
-  "MODEL_DIR": "research/models/gidionv_multi_memory",
+  "MODEL_DIR": "research/models/gidionv_multi_memory_finetune",
   "TOKENIZER_PATH": "configs/tokenizers/bpe_v2_50200_vocab.json",
   "TRAIN_FILE_PATH": "D:\\Projects\\datasets\\openwebtext_train.txt",
   "VAL_FILE_PATH": "D:\\Projects\\datasets\\openwebtext_val.txt",
@@ -42,8 +42,8 @@
   "ADAM_BETA1": 0.9,
   "ADAM_BETA2": 0.95,
   "WEIGHT_DECAY": 0.1,
-  "EVAL_EVERY_N_STEPS": 100,
-  "SAVE_EVERY_N_STEPS": 20,
+  "EVAL_EVERY_N_STEPS": 200,
+  "SAVE_EVERY_N_STEPS": 100,
   "LOG_EVERY_N_STEPS": 10,
   "ENABLE_GRL": false,
   "GRL_EVERY_N_OPTIMIZER_STEPS": 2000,

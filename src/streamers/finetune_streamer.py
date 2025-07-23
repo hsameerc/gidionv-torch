@@ -196,7 +196,7 @@ class FinetuneDatasetStream(IterableDataset):
 
         instruction = example.get('instruction', '').strip()
         inp = example.get('input', '').strip()
-        formatted_context = f"{inst_token}{inp}{end_inst_token}"
+        formatted_context = f"{inp}"
         output = example.get('output', '').strip()
         if instruction and output:
             yield {"instruction": instruction, "context": formatted_context, "output": output}
@@ -208,7 +208,7 @@ class FinetuneDatasetStream(IterableDataset):
 
         instruction = example.get('instruction', '').strip()
         context = example.get('context', '').strip()
-        formatted_context = f"{inst_token}{context}{end_inst_token}"
+        formatted_context = f"{context}"
         output = example.get('response', '').strip()
         if instruction and output:
             yield {"instruction": instruction, "context": formatted_context, "output": output}
@@ -220,7 +220,7 @@ class FinetuneDatasetStream(IterableDataset):
 
         """Processes a single example from the SQuAD v2 dataset."""
         context = example.get('context', '').strip()
-        formatted_context = f"{inst_token}{context}{end_inst_token}"
+        formatted_context = f"{context}"
         question = example.get('question', '').strip()
         answers = example.get('answers', {}).get('text', [])
         if context and question and answers:
@@ -241,6 +241,8 @@ class FinetuneDatasetStream(IterableDataset):
         for i in range(0, len(conversation) - 1, 2):
             user_msg = conversation[i]
             assistant_msg = conversation[i + 1]
+            if not assistant_msg.get('do_train', False):
+                continue
             if (
                     user_msg.get('role', '').lower() == 'user' and
                     assistant_msg.get('role', '').lower() == 'assistant'

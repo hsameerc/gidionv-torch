@@ -30,6 +30,27 @@ class ConversationHistory:
     def get_history_as_string(self):
         return "\n".join(f"{item['role']}: {item['content']}" for item in self.history)
 
+    def get_history_as_with_token(self, special_tokens: dict):
+        """
+        Returns the history as a string, using special tokens for roles.
+        """
+        user_token = special_tokens.get("USER", "<USER>")
+        assistant_token = special_tokens.get("ASSISTANT", "<ASSISTANT>")
+
+        def get_prefix(role: str) -> str:
+            if role == "user":
+                return user_token
+            elif role == "assistant":
+                return assistant_token
+            else:
+                return f"{role.title()}:"
+
+        return "\n".join(
+            f"{get_prefix(item['role'])} {item['content'].strip()}"
+            for item in self.history
+            if item.get("role") and item.get("content")
+        )
+
     def get_recent_turns_as_list(self) -> List[Dict[str, str]]:
         """Returns the history as a list of dictionaries."""
         return list(self.history)
