@@ -71,26 +71,27 @@ class LIFFfn(nn.Module):
         return projected_sequence
 
 class DualStateFFN(nn.Module):
-    def __init__(self, input_size: int, hidden_size: int, output_size: int, num_layers: int = 1):
+    def __init__(self, input_size: int, output_size: int, hidden_layers_config: List[int], dropout_rate: float = 0.1,
+                 dtype: torch.dtype = torch.float32, ):
         super().__init__()
-        # For a fair test, we can stack the layers.
-        self.rnn_cells = nn.ModuleList()
+        self.lif_layers = nn.ModuleList()
         layer_input_size = input_size
-        for _ in range(num_layers):
-            self.rnn_cells.append(DualStateLIFLayer(layer_input_size, hidden_size))
+        for hidden_size in hidden_layers_config:
+            self.lif_layers.append(DualStateLIFLayer(layer_input_size, hidden_size,))
             layer_input_size = hidden_size
-
-        self.fc_out = nn.Linear(hidden_size, output_size)
-
+        last_hidden_size = hidden_layers_config[-1]
+        self.dropout = nn.Dropout(p=dropout_rate)
+        self.fc_out = nn.Linear(last_hidden_size, output_size)
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, _ = x.shape
         device = x.device
 
-        states = [cell.init_state(batch_size, device) for cell in self.rnn_cells]
+        states = [cell.init_state(batch_size, device) for cell in self.lif_layers]
+
         outputs_over_time = []
         for t in range(sequence_length):
             x_t = x[:, t, :]
-            for i, cell in enumerate(self.rnn_cells):
+            for i, cell in enumerate(self.lif_layers):
                 x_t, new_state = cell(x_t, states[i])
                 states[i] = new_state
                 outputs_over_time.append(x_t)

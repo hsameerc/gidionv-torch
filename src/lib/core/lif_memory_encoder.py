@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 
 from src.lib.core.lif_rnn import LIFRnn
+from src.lib.core.lifmodels import DualStateRNN
 
 
 class LIFMemoryEncoder(nn.Module):
@@ -20,7 +21,7 @@ class LIFMemoryEncoder(nn.Module):
         hidden_layers_config = hidden_size if isinstance(hidden_size, list) else [hidden_size] * num_layers
 
         # The core of the encoder is the LIFRnn itself
-        self.lif_rnn = LIFRnn(
+        self.lif_rnn = DualStateRNN(
             input_size=d_model,
             output_size=d_model,
             hidden_layers_config=hidden_layers_config,

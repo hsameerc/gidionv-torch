@@ -5,7 +5,7 @@ import torch.nn as nn
 
 from src.lib.core.attention import MultiHeadAttention
 from src.lib.core.ffn import DynamicFeedForwardNetwork
-from src.lib.core.lif_ffn import LIFFfn
+from src.lib.core.lif_ffn import LIFFfn, DualStateFFN
 
 
 class HierarchicalFusionDecoderBlock(nn.Module):
@@ -35,7 +35,7 @@ class HierarchicalFusionDecoderBlock(nn.Module):
 
         # Feed-Forward Sub-layer
         self.ln_ff = nn.LayerNorm(d_model, dtype=dtype)
-        self.feed_forward = LIFFfn(input_size=d_model, output_size=d_model,
+        self.feed_forward = DualStateFFN(input_size=d_model, output_size=d_model,
                                                       hidden_layers_config=ff_hidden_config, dropout_rate=dropout_rate,
                                                       dtype=dtype)
         self.dropout3 = nn.Dropout(dropout_rate)

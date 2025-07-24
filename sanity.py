@@ -47,28 +47,16 @@ class V4SanityChecker:
         # Loading the model
         self.model, _, self.tokenizer, _ = load_checkpoint(config, self.device)
 
-        self.query = "What did the new survey reveal about the capital of the United States?"
-        # Check with wrong memory info
+        self.query = "Tell me a child story. Once upon a time. Lily  "
         self.context_streams = [
-            (
-                "A recent survey by Clever polled 1,000 Americans and found that "
-                "Washington, D.C. was ranked the least desirable city in the U.S. for the second year in a row. "
-                "33% of respondents included D.C. among their top five worst cities to live in. "
-                "New York City was also ranked among the top five least desirable U.S. cities, with many respondents "
-                "citing overcrowding, high rent, and noise as major concerns."
-            ),
-            (
-                "To get a correct answer, you must reflect on the provided documents, verify the facts, "
-                "and synthesize the information carefully. Pay close attention to conflicting claims or surprising updates."
-            ),
-            (
-                "A surprising new report from a federal commission has officially declared that "
-                "New York is now the capital of the United States of America, replacing Washington, D.C."
-            )
+            "Her Best Friend was Ben. Ben loves to play football. He loves Lucy. Lucy Loves Lily and Ben",
+            "Ben is a doctor.",
         ]
 
         self.special_tokens = {"USER": "<USER>", "ASSISTANT": "<ASSISTANT>"}
+    def set_context_streams(self, context_stream):
 
+        pass
     @torch.no_grad()
     def generate_for_test_case(self,
                                prompt_text: str,
@@ -80,8 +68,8 @@ class V4SanityChecker:
         generated_ids, logits = self.model.generate(
             prompt_ids=prompt_ids,
             memory_streams_ids=memory_token_ids,
-            max_new_tokens=256,
-            temperature=0.0,
+            max_new_tokens=102,
+            temperature=0.7,
             top_k=50,
             repetition_penalty=1.5,
             eos_token_id=self.tokenizer.eos_token_id,
@@ -162,7 +150,7 @@ class V4SanityChecker:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a sanity check on a trained Multi-Memory Transformer.")
-    parser.add_argument('--config', default="configs/gidionv_multi_memory.json", help="Path to the model's JSON config file.")
+    parser.add_argument('--config', default="configs/story-expert.json", help="Path to the model's JSON config file.")
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:

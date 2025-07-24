@@ -68,9 +68,13 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
         cls.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Instantiate the PyTorch model
-        cls.net = DynamicFeedForwardNetwork(input_size=input_size, output_size=output_size,
-            hidden_layers_config=[32, 32], hidden_activations=['silu', 'silu'],
-            dropout_rate=0.0, output_activation='linear', ).to(cls.device)
+        cls.net = DynamicFeedForwardNetwork(
+            input_size=input_size, output_size=output_size,
+            hidden_layers_config=[64],
+            hidden_activations=['silu'],
+            dropout_rate=0.0,
+            output_activation='linear',
+        ).to(cls.device)
 
         param_path = 'model_torch_drn.pth'  # Use .pth for PyTorch models
 
