@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 
 import torch
 import torch.nn as nn
@@ -256,3 +256,59 @@ class LIFRnn(nn.Module):
             outputs_over_time.append(x_t)
         output_sequence = torch.stack(outputs_over_time, dim=1)
         return self.fc_out(output_sequence)
+
+
+class DualStateLIFLayer(nn.Module):
+    def __init__(self, input_size: int, hidden_size: int):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.linear_in_v = nn.Linear(input_size, hidden_size)
+        self.leak_tau_v = nn.Parameter(torch.randn(hidden_size))
+        self.flip_threshold = nn.Parameter(torch.full((hidden_size,), 0.5))
+        self.fc_out = nn.Linear(hidden_size + hidden_size, hidden_size)
+        self.output_activation = nn.Tanh()
+
+    def forward(self, x_t: torch.Tensor, state: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[
+        torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        V_prev, D_prev = (s.detach() for s in state)
+        leak_alpha = torch.exp(-F.softplus(self.leak_tau_v))
+        input_current = self.linear_in_v(x_t)
+        V_t = leak_alpha * V_prev + input_current
+        spike = spike_fn(V_t - self.flip_threshold)
+        D_t = D_prev * (1 - spike) + (1 - D_prev) * spike
+        combined_state = torch.cat([V_t, D_t], dim=1)
+        output = self.output_activation(self.fc_out(combined_state))
+        return output, (V_t, D_t)
+
+    def init_state(self, batch_size: int, device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
+        dtype = self.flip_threshold.dtype
+        V0 = torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype)
+        D0 = torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype)
+        return V0, D0
+
+
+class DualStateRNN(nn.Module):
+    def __init__(self, input_size: int, hidden_size: int, output_size: int, num_layers: int = 1):
+        super().__init__()
+        # For a fair test, we can stack the layers.
+        self.rnn_cells = nn.ModuleList()
+        layer_input_size = input_size
+        for _ in range(num_layers):
+            self.rnn_cells.append(DualStateLIFLayer(layer_input_size, hidden_size))
+            layer_input_size = hidden_size
+
+        self.fc_out = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size, sequence_length, _ = x.shape
+        device = x.device
+
+        states = [cell.init_state(batch_size, device) for cell in self.rnn_cells]
+        x_t = None
+        for t in range(sequence_length):
+            x_t = x[:, t, :]
+            for i, cell in enumerate(self.rnn_cells):
+                x_t, new_state = cell(x_t, states[i])
+                states[i] = new_state
+
+        return self.fc_out(x_t)
