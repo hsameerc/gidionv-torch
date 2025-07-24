@@ -11,7 +11,7 @@ from sklearn.metrics import accuracy_score
 import matplotlib.pyplot as plt
 from typing import List
 
-from src.lib.core.lifmodels import DualStateRNN
+from src.lib.core.lif_rnn import DualStateRNN
 
 
 # ==============================================================================
@@ -130,15 +130,15 @@ def run_parity_benchmark():
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=BATCH_SIZE)
 
     # --- 3. Establish GRU Baseline ---
-    # print("\n--- Establishing GRU Baseline ---")
-    # gru_backbone_args = {'input_size': INPUT_SIZE, 'hidden_size': HIDDEN_SIZE, 'num_layers': NUM_LAYERS}
-    # gru_classifier_args = {'rnn_backbone': GRUExtractor(**gru_backbone_args), 'hidden_size': HIDDEN_SIZE,
-    #                        'num_classes': NUM_CLASSES}
-    # gru_learning_curve = run_single_trial(
-    #     "GRU (Baseline)", RNNClassifier, gru_classifier_args, device, train_loader, val_loader, EPOCHS, lr=1e-3
-    # )
-    # gru_final_accuracy = gru_learning_curve[-1]
-    # print(f"--- GRU Baseline Final Accuracy: {gru_final_accuracy:.2%} ---")
+    print("\n--- Establishing GRU Baseline ---")
+    gru_backbone_args = {'input_size': INPUT_SIZE, 'hidden_size': HIDDEN_SIZE, 'num_layers': NUM_LAYERS}
+    gru_classifier_args = {'rnn_backbone': GRUExtractor(**gru_backbone_args), 'hidden_size': HIDDEN_SIZE,
+                           'num_classes': NUM_CLASSES}
+    gru_learning_curve = run_single_trial(
+        "GRU (Baseline)", RNNClassifier, gru_classifier_args, device, train_loader, val_loader, EPOCHS, lr=1e-3
+    )
+    gru_final_accuracy = gru_learning_curve[-1]
+    print(f"--- GRU Baseline Final Accuracy: {gru_final_accuracy:.2%} ---")
 
     # --- 4. Run Hyperparameter Sweep for LIFRnn ---
     lif_learning_rates_to_test = [1e-2,]
@@ -149,7 +149,7 @@ def run_parity_benchmark():
 
     print("\n--- Starting Hyperparameter Sweep for LIFRnn ---")
     lif_rnn_args = {'input_size': INPUT_SIZE, 'output_size': HIDDEN_SIZE,
-                     'hidden_layers_config': [HIDDEN_SIZE]
+                     'hidden_size': HIDDEN_SIZE
                     }
     lif_classifier_args = {'rnn_backbone': DualStateRNN(**lif_rnn_args), 'hidden_size': HIDDEN_SIZE,
                            'num_classes': NUM_CLASSES}
