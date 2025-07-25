@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-from src.lib.core.lif_ffn import LIFFfn, DualStateFFN
+from src.lib.core.lif_ffn import  DualStateFFN
 
 language_alphabets = {"English": set("abcdefghijklmnopqrstuvwxyz"),
                       "French": set("abcdefghijklmnopqrstuvwxyzàâæçéèêëîïôœùûüÿ"),
