@@ -120,7 +120,7 @@ def run_parity_benchmark():
     gru_classifier_args = {'rnn_backbone': GRUExtractor(**gru_backbone_args), 'hidden_size': HIDDEN_SIZE,
                            'num_classes': NUM_CLASSES}
     gru_learning_curve = run_single_trial(
-        "GRU (Baseline)", RNNClassifier, gru_classifier_args, device, train_loader, val_loader, EPOCHS, lr=1e-3
+        "GRU (Baseline)", RNNClassifier, gru_classifier_args, device, train_loader, val_loader, EPOCHS, lr=1e-2
     )
     gru_final_accuracy = gru_learning_curve[-1]
     print(f"GRU Baseline Final Accuracy: {gru_final_accuracy:.2%}")
