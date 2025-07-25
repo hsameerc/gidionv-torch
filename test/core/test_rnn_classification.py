@@ -8,8 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-from src.lib.core.lif_ffn import LIFFfn
+from src.lib.core.lifmodels import DualStateFFN
 
 language_alphabets = {"English": set("abcdefghijklmnopqrstuvwxyz"),
                       "French": set("abcdefghijklmnopqrstuvwxyzàâæçéèêëîïôœùûüÿ"),
@@ -75,10 +74,10 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
         cls.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Instantiate the PyTorch model
-        cls.net = LIFFfn(
+        cls.net = DualStateFFN(
             input_size=input_size,
             output_size=output_size,
-            hidden_layers_config=[64],
+            hidden_layers_config=[128],
             dropout_rate=0.1,
             dtype= torch.float32
         ).to(cls.device)
@@ -138,7 +137,7 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
                 print(f"Epoch {epoch} - Loss: {total_loss:.4f} - Accuracy: {acc:.2%}")
 
         # Save the PyTorch model state
-        torch.save(cls.net.state_dict(), param_path)
+        # torch.save(cls.net.state_dict(), param_path)
 
     def _test_prediction(self, sentence, expected):
         # Set model to eval mode and use torch.no_grad()
