@@ -268,7 +268,7 @@ class DualStateLIFLayer(nn.Module):
         self.fc_out = nn.Linear(hidden_size + hidden_size, hidden_size)
         self.output_activation = nn.Tanh()
 
-    def forward(self, x_t: torch.Tensor, state: Tuple[torch.Tensor, torch.Tensor]) -> Tuple[
+    def forward(self, x_t: torch.Tensor, state: Tuple[torch.Tensor, torch.Tensor], return_spike:bool=False) -> Tuple[
         torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         V_prev, D_prev = (s.detach() for s in state)
         leak_alpha = torch.exp(-F.softplus(self.leak_tau_v))
@@ -278,6 +278,7 @@ class DualStateLIFLayer(nn.Module):
         D_t = D_prev * (1 - spike) + (1 - D_prev) * spike
         combined_state = torch.cat([V_t, D_t], dim=1)
         output = self.output_activation(self.fc_out(combined_state))
+        output = output if not return_spike else D_t
         return output, (V_t, D_t)
 
     def init_state(self, batch_size: int, device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -307,7 +308,7 @@ class DualStateRNN(nn.Module):
 
         self.fc_out = nn.Linear(hidden_layers_config[-1], output_size)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, return_spike:bool=False) -> torch.Tensor:
         """Processes a sequence and returns the output of the final timestep."""
         batch_size, sequence_length, _ = x.shape
         device = x.device
@@ -316,7 +317,7 @@ class DualStateRNN(nn.Module):
         for t in range(sequence_length):
             output = x[:, t, :]
             for i, cell in enumerate(self.rnn_cells):
-                output, new_state = cell(output, states[i])
+                output, new_state = cell(output, states[i], return_spike)
                 states[i] = new_state
             outputs_over_time.append(output)
         output_sequence = torch.stack(outputs_over_time, dim=1)
