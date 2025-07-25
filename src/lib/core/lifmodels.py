@@ -6,10 +6,6 @@ import torch.nn.functional as F
 from torch.autograd import Function
 
 
-# ==============================================================================
-# SECTION 1: CORE COMPONENTS
-# ==============================================================================
-
 class SFU(nn.Module):
     """
     A Smooth Firing Unit (SFU) activation function.
@@ -97,17 +93,23 @@ class DualStateLIFLayer(nn.Module):
         """
         V_prev, D_prev = (s.detach() for s in state)
 
-        # Analog State (V) Update
+        # Analog State (V) Update (The value that remains)
+        # Simplified leaky integrator.
         leak_alpha = torch.exp(-F.softplus(self.leak_tau_v))
         V_t = leak_alpha * V_prev + self.linear_in_v(x_t)
 
         # "Flip Check" based on the analog state
+        # We check if the analog state has crossed its threshold
+        # This produces a binary spike signal (0.0 or 1.0)
         spike = spike_fn(V_t - self.flip_threshold)
 
         # Digital "Mirror" State (D) Update
+        # The digital state updates based on the spike and its own previous state.
+        # D_t = D_prev XOR spike
         D_t = D_prev * (1 - spike) + (1 - D_prev) * spike
 
         # Final Output is a function of both states
+        # The output is a learned fn of both the analog and digital states.
         combined_state = torch.cat([V_t, D_t], dim=1)
         output = self.output_activation(self.fc_out(combined_state))
 
