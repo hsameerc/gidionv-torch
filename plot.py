@@ -146,16 +146,16 @@ def launch_log_plot(destination: str):
                 new_size = DEST_LOG.stat().st_size
                 if new_size != last_size:
                     last_size = new_size
-                    print(f"[{time.strftime('%H:%M:%S')}] ✅ File changed. Redrawing plot...")
+                    print(f"[{time.strftime('%H:%M:%S')}] [SUCCESS] File changed. Redrawing plot...")
                     data_file = pd.read_csv(DEST_LOG)
                     all_plot(data_file, fig, axs)  # Pass the existing figure and axes
                 else:
-                    print(f"[{time.strftime('%H:%M:%S')}] ℹ️ No change.")
+                    print(f"[{time.strftime('%H:%M:%S')}] [INFO] No change.")
             else:
-                print(f"[{time.strftime('%H:%M:%S')}] ❌ Log not found.")
+                print(f"[{time.strftime('%H:%M:%S')}] [ERROR] Log not found.")
 
         except Exception as e:
-            print(f"❌ Error: {e}")
+            print(f"[ERROR] Error: {e}")
         plt.pause(REFRESH_INTERVAL_SECS)
 
 

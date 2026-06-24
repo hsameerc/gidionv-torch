@@ -39,7 +39,7 @@ def save_checkpoint(model: nn.Module, optimizer: Optimizer, config: Dict[str, An
         resume_save_path = os.path.join(model_dir, f"{model_name}_best_resume.pth")
         torch.save(model.state_dict(), save_path)
         torch.save(checkpoint, resume_save_path)
-        print(f"🎉New best model saved to {save_path} 🎉")
+        print(f"[SUCCESS] New best model saved to {save_path}")
     else:
         save_path = os.path.join(model_dir, f"{model_name}_latest.pth")
         torch.save(checkpoint, save_path)

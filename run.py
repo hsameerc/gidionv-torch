@@ -6,7 +6,7 @@ import torch
 
 from src.data.saver_loader import load_checkpoint
 from src.lib.memory.conversation import ConversationHistory
-from src.loaders.finetune_loader import format_prompt
+from src.loaders.finetune_loader import format_without_context_prompt
 
 # Global device setup
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -29,7 +29,7 @@ class InteractiveChat:
 
         # Initializing state
         self.conversation_history = ConversationHistory(max_turns=5)
-        self.special_tokens = {"USER": "<USER>", "ASSISTANT": "<ASSISTANT>", "INSTRUCTION": "<INST>", "RESPONSE": "<RESPONSE>"}
+        self.special_tokens = {"USER": "<USER>", "ASSISTANT": "<ASSISTANT>", "INST": "<INST>", "END_INST": "</INST>"}
         self.num_memory_slots = self.config['model']['num_memory_streams']
 
     @torch.no_grad()
@@ -48,10 +48,7 @@ class InteractiveChat:
         empty_stream = []
         memory_token_ids.extend([empty_stream] * (self.num_memory_slots - 1))
 
-        # The prompt should include the user's latest message.
-        # The 'context' for the prompt can be a hint from the history.
-        context_hint = history_text[:100] + "..." if history_text else ""
-        prompt_text = format_prompt(user_input, context_hint, self.special_tokens)
+        prompt_text = format_without_context_prompt(user_input, self.special_tokens)
 
         prompt_ids = torch.tensor([self.tokenizer.encode(prompt_text)], dtype=torch.long, device=device)
 

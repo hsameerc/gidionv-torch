@@ -64,6 +64,11 @@ class TestTorchDynamicFeedForwardNetwork(unittest.TestCase):
         It instantiates the PyTorch model, loads weights from the old .npz file
         if it exists, or trains a new model using the PyTorch training loop.
         """
+        # Set PyTorch random seed for reproducibility
+        torch.manual_seed(42)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(42)
+
         # Set up device
         cls.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

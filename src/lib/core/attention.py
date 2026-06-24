@@ -70,6 +70,8 @@ class MultiHeadAttention(nn.Module):
 
         # Apply softmax to get weights
         attn_weights = F.softmax(scores, dim=-1)
+        # NaN safe-guard: if a row was all -inf, softmax returns NaN. We replace NaNs with 0.
+        attn_weights = torch.nan_to_num(attn_weights, nan=0.0)
 
         # Apply dropout to weights
         attn_weights = self.dropout(attn_weights)

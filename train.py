@@ -1,3 +1,28 @@
+import datasets  # Import datasets first to avoid Windows CUDA DLL collision with pyarrow
+
+# Apply Python 3.14 compatibility monkeypatch for datasets + dill
+try:
+    import datasets.utils._dill
+    import dill
+    def patched_batch_setitems(self, items, obj=None):
+        if self._legacy_no_dict_keys_sorting:
+            try:
+                return super(datasets.utils._dill.Pickler, self)._batch_setitems(items, obj)
+            except TypeError:
+                return super(datasets.utils._dill.Pickler, self)._batch_setitems(items)
+        try:
+            items = sorted(items)
+        except Exception:
+            from datasets.fingerprint import Hasher
+            items = sorted(items, key=lambda x: Hasher.hash(x[0]))
+        try:
+            dill.Pickler._batch_setitems(self, items, obj)
+        except TypeError:
+            dill.Pickler._batch_setitems(self, items)
+    datasets.utils._dill.Pickler._batch_setitems = patched_batch_setitems
+except Exception as e:
+    print(f"Warning: Failed to apply Python 3.14 datasets patch: {e}")
+
 import argparse
 import json
 

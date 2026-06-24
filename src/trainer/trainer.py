@@ -1,4 +1,5 @@
 import csv
+import math
 import os
 from typing import Dict, Any
 
@@ -66,8 +67,11 @@ class Trainer:
                                      num_workers=self.config.get('NUM_WORKERS', 1), persistent_workers=True,
                                      pin_memory=True)
             model.train()
+            optimizer.zero_grad()
             accum_loss = 0.0
+            accum_steps = 0
             for i, batch in enumerate(data_loader):
+                accum_steps += 1
                 batch: Dict[str, torch.Tensor]
                 # Move batch to device
                 input_ids = batch['input_ids'].to(device)
@@ -90,7 +94,7 @@ class Trainer:
                 # Backward Pass & Gradient Accumulation
                 scaler.scale(loss_for_backward).backward()
 
-                if (i + 1) % self.config['GRADIENT_ACCUMULATION_STEPS'] == 0:
+                if accum_steps == self.config['GRADIENT_ACCUMULATION_STEPS']:
                     total_steps += 1
                     scaler.unscale_(optimizer)
 
@@ -102,6 +106,30 @@ class Trainer:
                             torch.sum(
                                 torch.stack([p.grad.norm() ** 2 for p in model.parameters() if p.grad is not None])))
 
+                    grad_norm_val = grad_norm.item()
+                    avg_loss = accum_loss / self.config['GRADIENT_ACCUMULATION_STEPS']
+
+                    # Safety check for NaN/Inf in gradients or loss
+                    if torch.isnan(grad_norm) or torch.isinf(grad_norm) or math.isnan(avg_loss) or math.isinf(avg_loss):
+                        print(f"[WARNING] Step {total_steps}: NaN or Inf detected in gradients (norm: {grad_norm_val:.4f}) or loss (loss: {avg_loss:.4f}). Skipping optimizer step.")
+                        optimizer.zero_grad()
+                        accum_loss = 0.0
+                        accum_steps = 0
+
+                        # Recovery: reload the latest clean checkpoint to restore model weights
+                        checkpoint_path = os.path.join(self.config['MODEL_DIR'], f"{self.config['MODEL_NAME']}_latest.pth")
+                        if os.path.exists(checkpoint_path):
+                            print(f"[RECOVERY] Reloading model and optimizer state from {checkpoint_path}...")
+                            checkpoint = torch.load(checkpoint_path, map_location=device)
+                            model.load_state_dict(checkpoint['model_state_dict'])
+                            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                            total_steps = checkpoint.get('total_steps', 0)
+                            print(f"[RECOVERY] Successfully recovered model weights. Rolled back total_steps to {total_steps}.")
+                        else:
+                            print("[RECOVERY] No latest checkpoint found to reload! Continuing training from current state.")
+                            total_steps -= 1
+                        continue
+
                     scaler.step(optimizer)
                     scaler.update()
 
@@ -112,15 +140,13 @@ class Trainer:
 
                     # Optimizer Step
                     optimizer.zero_grad()
-                    grad_norm_val = grad_norm.item() if self.config['CLIP_THRESHOLD'] > 0 else 0.0
-                    avg_loss = accum_loss / self.config['GRADIENT_ACCUMULATION_STEPS']
                     print(
                         f"Epoch {epoch + 1} | Step {total_steps: >6} | Loss: {avg_loss:.4f} | LR: {lr:.2e} | Grad Norm: {grad_norm_val:.4f}")
                     accum_loss = 0.0
+                    accum_steps = 0
 
                     # Logging & Validation
                     if total_steps % self.config['LOG_EVERY_N_STEPS'] == 0:
-
                         log_data = {
                             "step": total_steps,
                             "epoch": epoch + 1,
@@ -134,8 +160,6 @@ class Trainer:
                             stacked_weights = torch.stack(fusion_weights_per_layer)
                             avg_fusion_weights = stacked_weights.mean(dim=0)
                             avg_weights_list = avg_fusion_weights.cpu().numpy().tolist()
-
-                            # Dynamically add the weight for each memory stream to the log data
                             for mi, weight in enumerate(avg_weights_list):
                                 log_data[f"mem_weight_{mi}"] = f"{weight:.4f}"
                         log_writer.writerow(log_data)
@@ -143,8 +167,7 @@ class Trainer:
                     if total_steps % self.config['EVAL_EVERY_N_STEPS'] == 0:
                         val_loss, val_ppl = calculate_validation_loss(model=model, val_loader=val_data_loader,
                                                                       criterion=criterion, device=device)
-                        print(
-                            f"VALIDATION @ Step {total_steps: >6} | Val Loss: {val_loss:.4f} | Perplexity: {val_ppl:.2f}")
+                        print(f"VALIDATION @ Step {total_steps: >6} | Val Loss: {val_loss:.4f} | Perplexity: {val_ppl:.2f}")
                         log_data = {
                             "step": total_steps,
                             "epoch": epoch + 1,
@@ -156,20 +179,59 @@ class Trainer:
                         }
                         for msi in range(num_mem_streams):
                             log_data[f"mem_weight_{msi}"] = f"N/A"
-
                         log_writer.writerow(log_data)
                         log_file.flush()
-
-                        # Save a "best" model checkpoint
                         if val_loss < best_val_loss:
                             best_val_loss = val_loss
-                            print(f"🎉 New best validation loss! Saving best model to {model_path}... 🎉")
-                            save_checkpoint(model, optimizer, self.config, total_steps, best_val_loss, epoch,
-                                            is_best=True)
+                            print(f"[SUCCESS] New best validation loss! Saving best model to {model_path}...")
+                            save_checkpoint(model, optimizer, self.config, total_steps, best_val_loss, epoch, is_best=True)
 
                     if total_steps % self.config['SAVE_EVERY_N_STEPS'] == 0:
-                        # Saving Checkpoint
                         save_checkpoint(model, optimizer, self.config, total_steps, best_val_loss, epoch, is_best=False)
+
+            # Check for trailing batches
+            if accum_steps > 0:
+                total_steps += 1
+                scaler.unscale_(optimizer)
+                if self.config['CLIP_THRESHOLD'] > 0:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), self.config['CLIP_THRESHOLD'])
+                else:
+                    grad_norm = torch.sqrt(torch.sum(torch.stack([p.grad.norm() ** 2 for p in model.parameters() if p.grad is not None])))
+                
+                grad_norm_val = grad_norm.item()
+                avg_loss = accum_loss / accum_steps  # Normalize by actual trailing steps
+
+                # Safety check for NaN/Inf in gradients or loss (trailing)
+                if torch.isnan(grad_norm) or torch.isinf(grad_norm) or math.isnan(avg_loss) or math.isinf(avg_loss):
+                    print(f"[WARNING] Step {total_steps} (Trailing): NaN or Inf detected in gradients or loss. Skipping optimizer step.")
+                    optimizer.zero_grad()
+                    accum_loss = 0.0
+
+                    # Recovery: reload the latest clean checkpoint to restore model weights
+                    checkpoint_path = os.path.join(self.config['MODEL_DIR'], f"{self.config['MODEL_NAME']}_latest.pth")
+                    if os.path.exists(checkpoint_path):
+                        print(f"[RECOVERY] Reloading model and optimizer state from {checkpoint_path}...")
+                        checkpoint = torch.load(checkpoint_path, map_location=device)
+                        model.load_state_dict(checkpoint['model_state_dict'])
+                        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                        total_steps = checkpoint.get('total_steps', 0)
+                        print(f"[RECOVERY] Successfully recovered model weights. Rolled back total_steps to {total_steps}.")
+                    else:
+                        print("[RECOVERY] No latest checkpoint found to reload!")
+                        total_steps -= 1
+                else:
+                    scaler.step(optimizer)
+                    scaler.update()
+                    lr = get_learning_rate(total_steps, self.config)
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] = lr
+                    optimizer.zero_grad()
+                    print(f"Epoch {epoch + 1} | Step {total_steps: >6} | Loss: {avg_loss:.4f} | LR: {lr:.2e} | Grad Norm: {grad_norm_val:.4f} (Trailing)")
+                    accum_loss = 0.0
+
+
+        # Save final checkpoint at the end of training
+        save_checkpoint(model, optimizer, self.config, total_steps, best_val_loss, epoch, is_best=False)
 
         log_file.close()
         print("\nTraining Finished")

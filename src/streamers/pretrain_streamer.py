@@ -138,6 +138,7 @@ class PretrainDatasetStreamer(IterableDataset):
                     name=source_info["name"],
                     split="train",
                     streaming=True,
+                    trust_remote_code=True,
                 )
 
                 processed_stream = ds.map(self._process_and_filter)
@@ -240,6 +241,7 @@ class PretrainValidationDataset(Dataset):
                 val_source.get("name"),
                 split=val_source.get("split", "validation"),
                 streaming=True,
+                trust_remote_code=True,
             )
             val_dataset_subset = val_dataset.take(self.val_max_samples)
             print(f"Loading up to {self.val_max_samples} documents from the validation set...")

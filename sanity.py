@@ -1,3 +1,4 @@
+import datasets
 import argparse
 import json
 from typing import List, Dict, Any, Optional, Tuple
@@ -25,7 +26,7 @@ def analyze_kl_divergence_torch(logits_a: torch.Tensor, logits_b: torch.Tensor, 
     """Analyzes KL divergence between two logit tensors."""
     min_len = min(logits_a.shape[1], logits_b.shape[1])
     if min_len == 0:
-        print(f"⚠️ Skipping KL for {label}: empty generation")
+        print(f"[WARNING] Skipping KL for {label}: empty generation")
         return None
 
     if logits_a.ndim == 2:
@@ -44,8 +45,8 @@ class V4SanityChecker:
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Loading the model
-        self.model, _, self.tokenizer, _ = load_checkpoint(config, self.device)
+        # Loading the model (use_best=True to avoid collision with active training write)
+        self.model, _, self.tokenizer, _ = load_checkpoint(config, self.device, use_best=True)
 
         self.query = "What did the new survey reveal about the capital of the United States?"
         # Check with wrong memory info
@@ -114,8 +115,9 @@ class V4SanityChecker:
 
         results = {}
 
-        # Starting with no memory, then add one stream at a time.
-        for i in range(len(encoded_streams) + 1):
+        # Starting with no memory, then add one stream at a time up to model's capacity.
+        active_len = min(len(encoded_streams), num_slots)
+        for i in range(active_len + 1):
             # Creating the list of memory streams for this test case
             current_mems = encoded_streams[:i]
             # Padding the rest with empty streams
@@ -153,11 +155,11 @@ class V4SanityChecker:
             analyze_kl_divergence_torch(logits_b, logits_a, f"{label_a} vs. {label_b}")
 
         print("\n" + "=" * 20 + " FINAL ANALYSIS " + "=" * 20)
-        final_output = results[f"With {len(encoded_streams)} Memory Stream(s)"]["text"]
+        final_output = results[f"With {active_len} Memory Stream(s)"]["text"]
         if "new york" in final_output.lower():
-            print("\n✅ SUCCESS: The model clearly used the specific factual memory content.")
+            print("\n[SUCCESS] SUCCESS: The model clearly used the specific factual memory content.")
         else:
-            print("\n❌ WARNING: The model did not clearly use the specific factual memory content.")
+            print("\n[WARNING] WARNING: The model did not clearly use the specific factual memory content.")
 
 
 if __name__ == "__main__":

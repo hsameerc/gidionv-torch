@@ -67,10 +67,6 @@ class MultiMemoryTransformer(nn.Module):
         elif isinstance(module, nn.LayerNorm):
             torch.nn.init.zeros_(module.bias)
             torch.nn.init.ones_(module.weight)
-        num_layers = self.config['decoder']['num_layers']
-        if isinstance(module, nn.Linear):
-            scale_factor = 1 / math.sqrt(2.0 * num_layers)
-            module.weight.data.normal_(mean=0.0, std=0.02 * scale_factor)
 
     def forward(self, input_ids: torch.Tensor,
                 memory_streams_ids: Optional[List[torch.Tensor]] = None,
