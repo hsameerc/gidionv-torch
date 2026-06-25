@@ -1,14 +1,14 @@
 {
-  "MODEL_NAME": "gidionv_pretrain_scaled",
-  "MODEL_DIR": "research/models/gidionv_pretrain_scaled",
+  "MODEL_NAME": "gidionv_pretrain_v2",
+  "MODEL_DIR": "research/models/gidionv_pretrain_v2",
   "TOKENIZER_PATH": "configs/tokenizers/bpe_v2_50200_vocab.json",
   "TRAIN_FILE_PATH": "sample-data/pretrain_corpus.txt",
   "VAL_FILE_PATH": "sample-data/pretrain_corpus.txt",
-  "MEMORY_PATH": "memory/gidionv_pretrain_scaled",
-  "LOG_FILE_NAME": "gidionv_pretrain_scaled.csv",
-  "GRADIENT_NORM_LOG_PATH": "gidionv_pretrain_scaled_grad.csv",
+  "MEMORY_PATH": "memory/gidionv_pretrain_v2",
+  "LOG_FILE_NAME": "gidionv_pretrain_v2.csv",
+  "GRADIENT_NORM_LOG_PATH": "gidionv_pretrain_v2_grad.csv",
   "PROMPT_TEMPLATES_PATH": "configs/prompt_templates.json",
-  "d_model": 512,
+  "d_model": 768,
   "vocab_size": 50200,
   "max_seq_len": 256,
   "max_context_len": 256,
@@ -25,19 +25,19 @@
     "num_memory_slots": 1
   },
   "decoder": {
-    "num_layers": 4,
-    "num_heads": 4,
+    "num_layers": 12,
+    "num_heads": 12,
     "ff_hidden_config": [
-      1024
+      3072
     ]
   },
   "EPOCHS": 5,
-  "BATCH_SIZE": 2,
-  "GRADIENT_ACCUMULATION_STEPS": 4,
+  "BATCH_SIZE": 4,
+  "GRADIENT_ACCUMULATION_STEPS": 8,
   "PEAK_LEARNING_RATE": 3e-4,
   "MIN_LEARNING_RATE": 3e-5,
   "WARMUP_STEPS": 100,
-  "TOTAL_DECAY_STEPS": 10000,
+  "TOTAL_DECAY_STEPS": 100000,
   "CLIP_THRESHOLD": 1.0,
   "ADAM_BETA1": 0.9,
   "ADAM_BETA2": 0.95,
@@ -48,6 +48,7 @@
   "ENABLE_GRL": false,
   "RANDOM_SEED": 42,
   "model_dtype": "float32",
-  "resume_training": true,
-  "val_max_samples": 5
+  "use_amp": true,
+  "resume_training": false,
+  "val_max_samples": 50
 }

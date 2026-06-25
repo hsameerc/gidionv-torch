@@ -1,0 +1,56 @@
+{
+  "MODEL_NAME": "gidion_moe_v1",
+  "MODEL_DIR": "research/models/gidion_moe_v1",
+  "TOKENIZER_PATH": "configs/tokenizers/bpe_v2_50200_vocab.json",
+  "LOG_FILE_NAME": "gidion_moe_v1.csv",
+  "TRAINING_TYPE": "pretrain",
+  "TRAINING_SOURCE": "online",
+  "MODEL_ARCHITECTURE": "moe",
+
+  "d_model": 512,
+  "vocab_size": 50200,
+  "max_seq_len": 512,
+  "dropout_rate": 0.1,
+  "tie_weights": true,
+  "model_dtype": "float32",
+
+  "memory_encoder": {
+    "num_layers": 2,
+    "num_heads": 8,
+    "ff_hidden_config": [1024],
+    "num_memory_slots": 4
+  },
+
+  "decoder": {
+    "num_layers": 8,
+    "num_heads": 8,
+    "ff_hidden_config": [1024, 1024]
+  },
+
+  "model": {
+    "num_memory_streams": 4
+  },
+
+  "EPOCHS": 3,
+  "BATCH_SIZE": 4,
+  "GRADIENT_ACCUMULATION_STEPS": 8,
+  "NUM_WORKERS": 1,
+  "use_amp": true,
+
+  "PEAK_LEARNING_RATE": 3e-4,
+  "MIN_LEARNING_RATE": 3e-5,
+  "WARMUP_STEPS": 500,
+  "TOTAL_DECAY_STEPS": 20000,
+
+  "CLIP_THRESHOLD": 1.0,
+  "ADAM_BETA1": 0.9,
+  "ADAM_BETA2": 0.95,
+  "WEIGHT_DECAY": 0.1,
+
+  "EVAL_EVERY_N_STEPS": 500,
+  "SAVE_EVERY_N_STEPS": 500,
+  "LOG_EVERY_N_STEPS": 10,
+
+  "RANDOM_SEED": 42,
+  "resume_training": true
+}

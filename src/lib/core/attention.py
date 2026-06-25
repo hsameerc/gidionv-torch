@@ -60,8 +60,12 @@ class MultiHeadAttention(nn.Module):
         if is_causal or attn_mask is not None:
             # We need to broadcast the mask to the scores shape (batch, heads, q_len, k_len)
             if is_causal:
+                # Calculate the diagonal offset. During standard training, q_seq_len == k_seq_len, so offset is 1.
+                # During KV-cache generation, k_seq_len > q_seq_len (often q_seq_len=1), 
+                # so the query should be able to attend to all previous keys.
+                diagonal_offset = (k_seq_len - q_seq_len) + 1
                 causal_mask = torch.triu(torch.ones((q_seq_len, k_seq_len), device=query.device, dtype=torch.bool),
-                                         diagonal=1)
+                                         diagonal=diagonal_offset)
                 scores = scores.masked_fill(causal_mask, masking_value)
 
             if attn_mask is not None:

@@ -103,7 +103,7 @@ class MultiMemoryTransformer(nn.Module):
         target_padding_mask = (input_ids != self.pad_token_id)
 
         x = self.token_embedding(input_ids) * math.sqrt(self.d_model)
-        x = self.positional_encoding(x, start_pos=kv_cache_list[0]['self_attn'][0].shape[2] if kv_cache_list else 0)
+        x = self.positional_encoding(x, start_pos=kv_cache_list[0]['self_attn'][0].shape[1] if kv_cache_list else 0)
         x = self.input_dropout(x)
 
         # Pass through Fusion Decoder Stack

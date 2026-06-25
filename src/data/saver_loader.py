@@ -71,8 +71,13 @@ def load_checkpoint(config: Dict[str, Any], device: torch.device, use_best: bool
     # Initializing empty model and optimizer
     print("Initializing model architecture...")
     tokenizer = HFTokenizerWrapper(config['TOKENIZER_PATH'])
-    model = MultiMemoryTransformer(config, tokenizer).to(device)
-    # model = MemoryOfExpertsTransformer(config, tokenizer).to(device)
+    architecture = config.get('MODEL_ARCHITECTURE', 'multi_memory')
+    if architecture == 'moe':
+        print("Using MemoryOfExpertsTransformer architecture.")
+        model = MemoryOfExpertsTransformer(config, tokenizer).to(device)
+    else:
+        print("Using MultiMemoryTransformer architecture.")
+        model = MultiMemoryTransformer(config, tokenizer).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config['PEAK_LEARNING_RATE'],
                                   betas=(config['ADAM_BETA1'], config['ADAM_BETA2']), weight_decay=config['WEIGHT_DECAY'])
 
